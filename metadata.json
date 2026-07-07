@@ -1,0 +1,8 @@
+{
+  "name": "GramGo",
+  "description": "Rural emergency transportation and mobility platform for India, offering community vehicle dispatching, health centre location mapping, and vital emergency support.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
