@@ -16,9 +16,27 @@ import {
   Loader2, 
   Edit3, 
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  MessageSquare,
+  Mail,
+  Link,
+  BarChart3,
+  Percent,
+  Info
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { 
+  ResponsiveContainer, 
+  PieChart, 
+  Pie, 
+  Cell, 
+  Tooltip, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Legend 
+} from "recharts";
 
 interface ReferralStats {
   totalReferrals: number;
@@ -78,6 +96,8 @@ export default function ReferralDashboard({ token, onRewardClaimed }: ReferralDa
 
   // Action states
   const [copied, setCopied] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [customCode, setCustomCode] = useState<string>("");
   const [isEditingCode, setIsEditingCode] = useState<boolean>(false);
   const [updatingCode, setUpdatingCode] = useState<boolean>(false);
@@ -118,32 +138,64 @@ export default function ReferralDashboard({ token, onRewardClaimed }: ReferralDa
     fetchDashboardData();
   }, [token]);
 
-  // Copy referral code
-  const handleCopy = () => {
+  // Copy referral code text
+  const handleCopyCode = () => {
     if (!referral) return;
     navigator.clipboard.writeText(referral.code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Share referral code via native Web Share or WhatsApp/SMS fallback
-  const handleShare = async () => {
+  // Copy referral link URL
+  const handleCopyLink = () => {
     if (!referral) return;
-    const shareText = `Use my GramGo referral code "${referral.code}" to get an onboarding bonus of ₹50 towards safe emergency medical rides and panchayat transport! Sign up here: ${window.location.origin}/register?ref=${referral.code}`;
-    
+    const shareLink = `${window.location.origin}/register?ref=${referral.code}`;
+    navigator.clipboard.writeText(shareLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const getShareText = () => {
+    if (!referral) return "";
+    return `Use my GramGo referral code "${referral.code}" to get an onboarding bonus of ₹50 towards safe emergency medical rides and panchayat transport! Sign up here: ${window.location.origin}/register?ref=${referral.code}`;
+  };
+
+  // Share via WhatsApp
+  const handleWhatsAppShare = () => {
+    const text = getShareText();
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+  };
+
+  // Share via SMS
+  const handleSMSShare = () => {
+    const text = getShareText();
+    window.open(`sms:?body=${encodeURIComponent(text)}`, "_blank");
+  };
+
+  // Share via Email
+  const handleEmailShare = () => {
+    const text = getShareText();
+    const subject = "Join GramGo Rural Mobility & Receive ₹50 Credit Bonus!";
+    window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
+  };
+
+  // Share via native device menu
+  const handleNativeShare = async () => {
+    if (!referral) return;
+    const text = getShareText();
+    const shareLink = `${window.location.origin}/register?ref=${referral.code}`;
     if (navigator.share) {
       try {
         await navigator.share({
           title: "Join GramGo Rural Mobility",
-          text: shareText,
-          url: `${window.location.origin}/register?ref=${referral.code}`
+          text: text,
+          url: shareLink
         });
       } catch (err) {
-        console.log("Native share cancelled or failed, falling back to WhatsApp.");
-        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`, "_blank");
+        console.log("Native share cancelled or failed.", err);
       }
     } else {
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`, "_blank");
+      handleWhatsAppShare();
     }
   };
 
@@ -310,6 +362,149 @@ export default function ReferralDashboard({ token, onRewardClaimed }: ReferralDa
         </div>
       )}
 
+      {/* Visual Analytics & Share Statistics */}
+      {stats && (
+        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-50 pb-4">
+            <div>
+              <h2 className="text-sm font-black text-slate-800 flex items-center space-x-2">
+                <BarChart3 className="w-4 h-4 text-orange-600" />
+                <span>Invite Statistics & Conversion Insights</span>
+              </h2>
+              <p className="text-xs text-slate-400 font-semibold">Real-time breakdown of registration funnels and limit thresholds.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+            {/* Left Box: Quota Gauge */}
+            <div className="bg-slate-50 border border-slate-100/80 p-5 rounded-2xl flex flex-col justify-between">
+              <div className="space-y-1">
+                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center space-x-1">
+                  <Percent className="w-3.5 h-3.5 text-orange-600" />
+                  <span>Invitation Quota Status</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  You have consumed <span className="text-orange-600 font-bold">{stats.timesUsed}</span> out of your maximum limit of <span className="text-slate-700 font-bold">{stats.referralLimit}</span> active referral invitations.
+                </p>
+              </div>
+
+              <div className="h-44 flex items-center justify-center relative my-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "Invited", value: stats.timesUsed },
+                        { name: "Remaining Slots", value: Math.max(0, stats.referralLimit - stats.timesUsed) }
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={70}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      <Cell fill="#EA580C" />
+                      <Cell fill="#E2E8F0" />
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ background: "#ffffff", borderRadius: "8px", fontSize: "11px", border: "1px solid #f1f5f9" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Center Labels */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-black text-slate-800">
+                    {Math.round(((stats.timesUsed) / (stats.referralLimit || 10)) * 100)}%
+                  </span>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Quota Used</span>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100/50 pt-3.5 flex justify-between items-center text-[11px]">
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-orange-600"></span>
+                  <span className="text-slate-500 font-medium">Invited ({stats.timesUsed})</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-200"></span>
+                  <span className="text-slate-500 font-medium">Remaining ({Math.max(0, stats.referralLimit - stats.timesUsed)})</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Box: Funnel Distribution */}
+            <div className="bg-slate-50 border border-slate-100/80 p-5 rounded-2xl flex flex-col justify-between">
+              <div className="space-y-1">
+                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center space-x-1">
+                  <TrendingUp className="w-3.5 h-3.5 text-orange-600" />
+                  <span>Referral Conversion Funnel</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  Tracks friends as they advance through registration, first rides, and full claim cycles.
+                </p>
+              </div>
+
+              {transactions.length === 0 ? (
+                <div className="h-44 flex flex-col items-center justify-center text-center text-slate-400 py-6 space-y-2">
+                  <Users className="w-6 h-6 text-slate-300 stroke-[1.5]" />
+                  <p className="text-[11px] font-bold">Pipeline Empty</p>
+                  <p className="text-[9px] text-slate-400 max-w-xs px-4">
+                    Your conversion funnel data will populate automatically once your first referred friend registers.
+                  </p>
+                </div>
+              ) : (
+                <div className="h-44 my-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={[
+                        {
+                          stage: "Registered",
+                          count: transactions.filter(t => t.status === "registered").length,
+                          color: "#3B82F6"
+                        },
+                        {
+                          stage: "1st Ride Done",
+                          count: transactions.filter(t => t.status === "completed_first_ride").length,
+                          color: "#F59E0B"
+                        },
+                        {
+                          stage: "Rewarded",
+                          count: transactions.filter(t => t.status === "rewarded").length,
+                          color: "#10B981"
+                        }
+                      ]}
+                      margin={{ top: 15, right: 10, left: -25, bottom: 5 }}
+                    >
+                      <XAxis dataKey="stage" tick={{ fontSize: 9, fontWeight: "bold", fill: "#64748B" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                      <Tooltip contentStyle={{ fontSize: "11px", borderRadius: "8px", border: "1px solid #f1f5f9" }} />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        <Cell fill="#3B82F6" />
+                        <Cell fill="#F59E0B" />
+                        <Cell fill="#10B981" />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              <div className="border-t border-slate-100/50 pt-3.5 flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <span>Conversion Rate: </span>
+                <span className="text-slate-700">
+                  {transactions.length > 0
+                    ? `${Math.round(
+                        (transactions.filter(t => ["completed_first_ride", "rewarded"].includes(t.status)).length /
+                          transactions.length) *
+                          100
+                      )}%`
+                    : "0%"}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Referral Action Area */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Code Card and Customizer */}
@@ -327,24 +522,99 @@ export default function ReferralDashboard({ token, onRewardClaimed }: ReferralDa
               </div>
 
               {/* Monospace Code Display */}
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between">
-                <div className="font-mono text-lg font-black tracking-widest text-slate-800 px-2 py-1 select-all">
-                  {referral.code}
-                </div>
-                <div className="flex items-center space-x-2">
+              <div className="space-y-3">
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between">
+                  <div>
+                    <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">Referral Suffix</span>
+                    <div className="font-mono text-base font-black tracking-widest text-slate-800 select-all">
+                      {referral.code}
+                    </div>
+                  </div>
                   <button
-                    onClick={handleCopy}
-                    title="Copy to clipboard"
-                    className="p-2.5 bg-white border border-slate-100 hover:border-slate-300 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer relative"
+                    onClick={handleCopyCode}
+                    title="Copy code suffix"
+                    className="p-2 py-1.5 bg-white border border-slate-100 hover:border-slate-300 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer flex items-center space-x-1.5"
                   >
-                    {copied ? <Check className="w-4 h-4 text-emerald-600 animate-scale" /> : <Copy className="w-4 h-4" />}
+                    {copiedCode ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-[11px] font-bold text-emerald-600">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span className="text-[11px] font-bold text-slate-500">Copy Code</span>
+                      </>
+                    )}
                   </button>
+                </div>
+
+                {/* Shared Referral Link Card */}
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between">
+                  <div className="truncate mr-4">
+                    <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">Full Invite Link</span>
+                    <div className="text-xs font-semibold text-slate-600 truncate font-mono">
+                      {window.location.origin}/register?ref={referral.code}
+                    </div>
+                  </div>
                   <button
-                    onClick={handleShare}
-                    title="Share code"
-                    className="p-2.5 bg-orange-600 hover:bg-orange-700 rounded-xl text-white shadow-sm transition-colors cursor-pointer"
+                    onClick={handleCopyLink}
+                    title="Copy full invite link"
+                    className="p-2 py-1.5 bg-white border border-slate-100 hover:border-slate-300 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer shrink-0 flex items-center space-x-1.5"
                   >
-                    <Share2 className="w-4 h-4" />
+                    {copiedLink ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-[11px] font-bold text-emerald-600">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Link className="w-3.5 h-3.5" />
+                        <span className="text-[11px] font-bold text-slate-500">Copy Link</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Individual Platform Share Triggers */}
+              <div className="space-y-2 pt-2">
+                <span className="block text-[10px] uppercase font-black text-slate-400 tracking-wider">Quick Share Channels</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* WhatsApp */}
+                  <button
+                    onClick={handleWhatsAppShare}
+                    className="flex items-center justify-center space-x-2 px-3 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                    <span>WhatsApp</span>
+                  </button>
+
+                  {/* SMS */}
+                  <button
+                    onClick={handleSMSShare}
+                    className="flex items-center justify-center space-x-2 px-3 py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Send className="w-4 h-4 text-sky-600" />
+                    <span>SMS / Message</span>
+                  </button>
+
+                  {/* Email */}
+                  <button
+                    onClick={handleEmailShare}
+                    className="flex items-center justify-center space-x-2 px-3 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Mail className="w-4 h-4 text-rose-600" />
+                    <span>Email Invite</span>
+                  </button>
+
+                  {/* Native System Share */}
+                  <button
+                    onClick={handleNativeShare}
+                    className="flex items-center justify-center space-x-2 px-3 py-2.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Share2 className="w-4 h-4 text-orange-600" />
+                    <span>Other Share</span>
                   </button>
                 </div>
               </div>
