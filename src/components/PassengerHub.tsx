@@ -32,7 +32,8 @@ import {
   Copy,
   MessageSquare,
   Mail,
-  Coins
+  Coins,
+  Gift
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { EmergencyRide, CommunityHealthCentre, RideCancellationLog } from "../types";
@@ -40,6 +41,7 @@ import { RideSummaryModal } from "./RideSummaryModal";
 import RideBooking from "./RideBooking";
 import NearbyDrivers from "./NearbyDrivers";
 import WalletDashboard from "./WalletDashboard";
+import ReferralDashboard from "./ReferralDashboard";
 
 interface Notification {
   id: string;
@@ -63,7 +65,7 @@ export default function PassengerHub() {
   const { user, token, refreshUser } = useAuth();
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<"dashboard" | "book" | "book_ride" | "nearby_drivers" | "history" | "profile" | "notifications" | "settings" | "cancellations" | "wallet">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "book" | "book_ride" | "nearby_drivers" | "history" | "profile" | "notifications" | "settings" | "cancellations" | "wallet" | "referral">("dashboard");
   
   // Data States
   const [activeRide, setActiveRide] = useState<EmergencyRide | null>(null);
@@ -851,6 +853,18 @@ export default function PassengerHub() {
             >
               <Coins className="w-4 h-4" />
               <span>My Subsidy Wallet</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("referral")}
+              className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer ${
+                activeTab === "referral"
+                  ? "bg-orange-600 text-white shadow-md shadow-orange-100"
+                  : "bg-white text-slate-600 hover:bg-orange-50/50 hover:text-orange-600 border border-slate-100"
+              }`}
+            >
+              <Gift className="w-4 h-4" />
+              <span>Refer & Earn Credits</span>
             </button>
 
             <button
@@ -1874,6 +1888,17 @@ export default function PassengerHub() {
                   <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage your personal village transport grants and medical subsidy balance.</p>
                 </div>
                 <WalletDashboard userId={user?.id || ""} token={token} role="passenger" />
+              </div>
+            )}
+
+            {/* REFERRAL TAB */}
+            {activeTab === "referral" && (
+              <div className="space-y-6">
+                <div className="border-b border-orange-50 pb-4">
+                  <h2 className="text-lg font-black text-slate-800">Referral Program</h2>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">Share the gift of safe transit and earn community subsidy rewards.</p>
+                </div>
+                <ReferralDashboard token={token} onRewardClaimed={refreshUser} />
               </div>
             )}
 

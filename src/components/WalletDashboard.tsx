@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import PaymentHub from "./PaymentHub";
 import {
   Wallet,
   Coins,
@@ -84,7 +85,7 @@ export default function WalletDashboard({ userId, token, role }: WalletDashboard
   const [executingTx, setExecutingTx] = useState(false);
 
   // Recharge State
-  const [dashboardTab, setDashboardTab] = useState<"recharge" | "manual" | "refund_request" | "refund_history" | "admin_refunds" | "withdraw" | "withdraw_history" | "admin_withdrawals">(
+  const [dashboardTab, setDashboardTab] = useState<"recharge" | "manual" | "refund_request" | "refund_history" | "admin_refunds" | "withdraw" | "withdraw_history" | "admin_withdrawals" | "payment_hub">(
     role === "admin" 
       ? "admin_refunds" 
       : role === "driver" 
@@ -1223,6 +1224,18 @@ export default function WalletDashboard({ userId, token, role }: WalletDashboard
               <CreditCard className="w-3.5 h-3.5 text-slate-500" />
               <span>Sandbox</span>
             </button>
+
+            <button
+              onClick={() => { setDashboardTab("payment_hub"); setError(null); setSuccessMsg(null); }}
+              className={`flex-1 min-w-[100px] py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center space-x-1 ${
+                dashboardTab === "payment_hub"
+                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/20"
+                  : "text-slate-500 hover:text-slate-800 hover:bg-white/30"
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-500 font-extrabold" />
+              <span>Payments</span>
+            </button>
           </div>
 
           {/* Tab: Driver Withdrawal */}
@@ -2204,11 +2217,44 @@ export default function WalletDashboard({ userId, token, role }: WalletDashboard
             </div>
           )}
 
+          {dashboardTab === "payment_hub" && (
+            <div className="bg-slate-900 p-5 rounded-2xl text-white shadow-sm space-y-4 border border-slate-800" id="payment-architecture-panel">
+              <div className="flex items-center space-x-2 text-indigo-400">
+                <ShieldCheck className="w-5 h-5 font-black text-indigo-400" />
+                <h4 className="text-xs font-black uppercase tracking-widest">Security Architecture</h4>
+              </div>
+              <p className="text-[11px] font-semibold leading-relaxed text-slate-300">
+                Our payment foundation is designed following professional enterprise guidelines. Direct client-side SDK checkouts are mediated by secure server-side Express handlers to guard sensitive webhooks.
+              </p>
+              <div className="p-3 bg-slate-800/50 rounded-xl space-y-1.5 text-[10px] text-slate-400">
+                <span className="font-extrabold text-indigo-400 uppercase tracking-wider block font-sans">Key Specifications:</span>
+                <div>• Strict MongoDB Document Schemas</div>
+                <div>• Automatic Sandbox Failover Systems</div>
+                <div>• Cryptographic Order & Refund Signatures</div>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Paginated Historical Ledger & Filters */}
-        <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between" id="historical-ledger">
-          <div>
+        <div 
+          className={dashboardTab === "payment_hub" ? "lg:col-span-7 space-y-6" : "lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between"} 
+          id="historical-ledger"
+        >
+          {dashboardTab === "payment_hub" ? (
+            <PaymentHub
+              userId={userId}
+              token={token}
+              role={role}
+              onPaymentSuccess={() => {
+                fetchWalletDetails();
+                fetchTransactionLogs(1);
+              }}
+            />
+          ) : (
+            <>
+              <div>
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start lg:items-center gap-3 mb-4">
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
@@ -2485,6 +2531,8 @@ export default function WalletDashboard({ userId, token, role }: WalletDashboard
                 </button>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
 

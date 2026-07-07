@@ -19,6 +19,10 @@ import { HospitalController } from "./server/controllers/hospitalController";
 import { PriorityEngine } from "./server/services/priorityEngine";
 import { EmergencyNotificationDb } from "./server/models/EmergencyNotification";
 import { NotificationService } from "./server/services/notificationService";
+import { WalletService } from "./server/services/walletService";
+import { ReferralService } from "./server/services/referralService";
+import { WithdrawalRequestDb } from "./server/models/WithdrawalRequest";
+import { WalletDb } from "./server/models/Wallet";
 
 dotenv.config();
 
@@ -683,6 +687,25 @@ async function getUpdatedBookingStatus(booking: IBooking): Promise<IBooking> {
         title = "Ride Booking Completed";
         message = `Your ride from ${updated.pickupLocation} to ${updated.destination} is complete. Estimated Fare: Rs. ${updated.estimatedFare}. Thank you for riding with GramGo!`;
         type = "success";
+
+        // Credit driver wallet with Net Earnings (Fare - Platform Commission)
+        if (updated.driverId && !updated.driverId.startsWith("drv_gen_")) {
+          const fare = updated.estimatedFare || 0;
+          const pct = adminSettings.commissionPercentage !== undefined ? adminSettings.commissionPercentage : 10;
+          const commission = Math.round((fare * pct) / 100);
+          const driverShare = fare - commission;
+          try {
+            await WalletService.createTransaction(
+              updated.driverId,
+              driverShare,
+              "credit",
+              `Earnings for Ride ${updated.id} (Fare: ₹${fare}, Platform Commission: ₹${commission} deducted)`
+            );
+            console.log(`[Commission] Credited driver ${updated.driverId} with ₹${driverShare} for ride ${updated.id}`);
+          } catch (e) {
+            console.error("Failed to credit driver wallet for completed ride:", e);
+          }
+        }
       }
 
       if (title && message) {
@@ -744,7 +767,7 @@ function authenticateToken(req: any, res: any, next: any) {
 
 // Register user
 app.post("/api/auth/register", async (req, res) => {
-  const { name, phone, email, password, role, village, district, vehicleType, vehicleNumber } = req.body;
+  const { name, phone, email, password, role, village, district, vehicleType, vehicleNumber, referralCode } = req.body;
   
   // Validation
   if (!name || !phone || !password || !role || !village) {
@@ -796,6 +819,11 @@ app.post("/api/auth/register", async (req, res) => {
         rating: 5.0,
         completedTrips: 0
       });
+    }
+
+    // Process referral registration if code was supplied
+    if (referralCode) {
+      await ReferralService.registerReferral(newUser.id, newUser.name, referralCode);
     }
     
     // Generate JWT
@@ -1471,6 +1499,13 @@ app.post("/api/driver/rides/:rideId/status", authenticateToken, async (req: any,
       message = `You have safely arrived at ${ride.destinationChc}. Transitioning care to CHC medical staff.`;
       type = "success";
       
+      // Process any referral first-ride rewards
+      if (ride.passengerId) {
+        ReferralService.processRideCompletion(ride.passengerId).catch(err => {
+          console.error("Error in ReferralService.processRideCompletion:", err);
+        });
+      }
+      
       // Free driver up
       driverProfile.status = "available";
       driverProfile.completedTrips += 1;
@@ -1500,6 +1535,23 @@ app.post("/api/driver/rides/:rideId/status", authenticateToken, async (req: any,
       const passengerUser = ride.passengerId ? await UserDb.findById(ride.passengerId) : null;
       ride.passengerName = passengerUser ? passengerUser.name : ride.patientName;
       ride.passengerPhone = passengerUser ? passengerUser.phone : ride.patientPhone;
+
+      // Credit driver wallet with Net Earnings (Fare - Emergency Flat Platform Surcharge)
+      if (ride.driverId) {
+        const emergencyFlatChg = adminSettings.emergencyCharges !== undefined ? adminSettings.emergencyCharges : 50;
+        const driverShare = Math.max(0, fare - emergencyFlatChg);
+        try {
+          await WalletService.createTransaction(
+            ride.driverId,
+            driverShare,
+            "credit",
+            `Earnings for Emergency Ride ${ride.id} (Fare: ₹${fare}, Platform Emergency Charge: ₹${emergencyFlatChg} deducted)`
+          );
+          console.log(`[Commission] Credited driver ${ride.driverId} with ₹${driverShare} for emergency ride ${ride.id}`);
+        } catch (e) {
+          console.error("Failed to credit driver wallet for completed emergency ride:", e);
+        }
+      }
     }
     
     if (ride.passengerId && title && message) {
@@ -2439,7 +2491,9 @@ let adminSettings = {
   smsNotifications: true,
   maxDriverRadiusKm: 15,
   emergencyHotline: "+91 94544 99999",
-  allowedVillages: ["Sherpur", "Gauspur", "Karimpur", "Malikpur", "Sohwal", "Dildarnagar"]
+  allowedVillages: ["Sherpur", "Gauspur", "Karimpur", "Malikpur", "Sohwal", "Dildarnagar"],
+  commissionPercentage: 10,
+  emergencyCharges: 50
 };
 
 // Middleware to verify admin access
@@ -2871,6 +2925,14 @@ app.get("/api/admin/users/:id/wallet", authenticateToken, verifyAdmin, UserContr
 import walletRoutes from "./server/routes/walletRoutes";
 app.use("/api/wallet", authenticateToken, walletRoutes);
 
+// --- PAYMENT FOUNDATION APIS ---
+import paymentRoutes from "./server/routes/paymentRoutes";
+app.use("/api/payments", authenticateToken, paymentRoutes);
+
+// --- REFERRAL FOUNDATION APIS ---
+import referralRoutes from "./server/routes/referralRoutes";
+app.use("/api/referrals", referralRoutes);
+
 
 
 // --- EMERGENCY PRIORITY ENGINE APIS ---
@@ -2938,13 +3000,186 @@ app.get("/api/admin/settings", authenticateToken, verifyAdmin, (req: any, res: a
 
 // Update Admin System Settings
 app.put("/api/admin/settings", authenticateToken, verifyAdmin, (req: any, res: any) => {
-  const { autoSimulateRides, smsNotifications, maxDriverRadiusKm, emergencyHotline, allowedVillages } = req.body;
+  const { autoSimulateRides, smsNotifications, maxDriverRadiusKm, emergencyHotline, allowedVillages, commissionPercentage, emergencyCharges } = req.body;
   if (autoSimulateRides !== undefined) adminSettings.autoSimulateRides = autoSimulateRides;
   if (smsNotifications !== undefined) adminSettings.smsNotifications = smsNotifications;
   if (maxDriverRadiusKm !== undefined) adminSettings.maxDriverRadiusKm = Number(maxDriverRadiusKm);
   if (emergencyHotline !== undefined) adminSettings.emergencyHotline = emergencyHotline;
   if (allowedVillages !== undefined && Array.isArray(allowedVillages)) adminSettings.allowedVillages = allowedVillages;
+  if (commissionPercentage !== undefined) adminSettings.commissionPercentage = Number(commissionPercentage);
+  if (emergencyCharges !== undefined) adminSettings.emergencyCharges = Number(emergencyCharges);
   res.json({ success: true, settings: adminSettings });
+});
+
+// Get Admin Platform Commission and Earnings stats
+app.get("/api/admin/commission-stats", authenticateToken, verifyAdmin, async (req: any, res: any) => {
+  try {
+    const bookingData = await BookingDb.getDashboardBookings(1, 10000);
+    const completedBookings = bookingData.bookings.filter(b => (b.status as string) === "completed" || (b.status as string) === "Completed");
+    const completedEmergencyRides = emergencyRides.filter(r => r.status === "completed" || r.status === "Completed");
+
+    const withdrawals = await WithdrawalRequestDb.findAll();
+    const completedWithdrawals = withdrawals.filter((w: any) => w.status === "completed");
+    const pendingWithdrawals = withdrawals.filter((w: any) => w.status === "pending");
+
+    const totalSettledAmount = completedWithdrawals.reduce((sum: number, w: any) => sum + w.amount, 0);
+    const totalPendingSettlement = pendingWithdrawals.reduce((sum: number, w: any) => sum + w.amount, 0);
+
+    const commissionPct = adminSettings.commissionPercentage !== undefined ? adminSettings.commissionPercentage : 10;
+    const emergencyFlatChg = adminSettings.emergencyCharges !== undefined ? adminSettings.emergencyCharges : 50;
+
+    let totalCompletedNormalRides = 0;
+    let totalNormalFares = 0;
+    let totalCommissionCollected = 0;
+
+    const processedNormalRides = completedBookings.map((b: any) => {
+      totalCompletedNormalRides++;
+      const fare = b.estimatedFare || 0;
+      totalNormalFares += fare;
+      const commAmount = Math.round((fare * commissionPct) / 100);
+      totalCommissionCollected += commAmount;
+      const drvShare = fare - commAmount;
+
+      return {
+        id: b.id,
+        passengerName: b.passengerName,
+        driverName: b.driverName || "Assigned Driver",
+        driverId: b.driverId,
+        rideType: b.rideType || "Auto",
+        createdAt: b.createdAt,
+        fare,
+        commissionPercentage: commissionPct,
+        commissionAmount: commAmount,
+        emergencyCharge: 0,
+        driverShare: drvShare,
+      };
+    });
+
+    let totalCompletedEmergencyRides = 0;
+    let totalEmergencyFares = 0;
+    let totalEmergencyChargesCollected = 0;
+
+    const processedEmergencyRides = completedEmergencyRides.map((r: any) => {
+      totalCompletedEmergencyRides++;
+      const fare = r.fareRupees || 500;
+      totalEmergencyFares += fare;
+      totalEmergencyChargesCollected += emergencyFlatChg;
+      const drvShare = Math.max(0, fare - emergencyFlatChg);
+
+      return {
+        id: r.id,
+        passengerName: r.patientName,
+        driverName: r.driverName || "Volunteer Driver",
+        driverId: r.driverId,
+        rideType: "Emergency",
+        createdAt: new Date(r.createdAt),
+        fare,
+        commissionPercentage: 0,
+        commissionAmount: 0,
+        emergencyCharge: emergencyFlatChg,
+        driverShare: drvShare,
+      };
+    });
+
+    const allRides = [...processedNormalRides, ...processedEmergencyRides];
+    allRides.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const totalCompletedRides = totalCompletedNormalRides + totalCompletedEmergencyRides;
+    const totalRideFares = totalNormalFares + totalEmergencyFares;
+    const totalPlatformEarnings = totalCommissionCollected + totalEmergencyChargesCollected;
+    const totalDriverShare = totalRideFares - totalPlatformEarnings;
+
+    const driverStats = drivers.map((drv: any) => {
+      const drvNormal = processedNormalRides.filter((r: any) => r.driverId === drv.id);
+      const drvEmergency = processedEmergencyRides.filter((r: any) => r.driverId === drv.id);
+
+      const drvCompleted = drvNormal.length + drvEmergency.length;
+      const drvGrossFares = drvNormal.reduce((sum, r) => sum + r.fare, 0) + drvEmergency.reduce((sum, r) => sum + r.fare, 0);
+      const drvCommission = drvNormal.reduce((sum, r) => sum + r.commissionAmount, 0) + drvEmergency.reduce((sum, r) => sum + r.emergencyCharge, 0);
+      const drvNetEarned = drvGrossFares - drvCommission;
+
+      const drvSettled = completedWithdrawals
+        .filter((w: any) => w.userId === drv.id)
+        .reduce((sum, w) => sum + w.amount, 0);
+
+      const drvPending = pendingWithdrawals
+        .filter((w: any) => w.userId === drv.id)
+        .reduce((sum, w) => sum + w.amount, 0);
+
+      return {
+        id: drv.id,
+        name: drv.name,
+        phone: drv.phone,
+        vehicleType: drv.vehicleType,
+        completedTrips: drvCompleted || drv.completedTrips || 0,
+        totalEarned: drvGrossFares,
+        commissionDeducted: drvCommission,
+        netEarned: drvNetEarned,
+        withdrawn: drvSettled,
+        pendingWithdrawal: drvPending,
+        availableBalance: Math.max(0, drvNetEarned - drvSettled)
+      };
+    });
+
+    const chartData = [];
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dayName = weekdays[d.getDay()];
+      const startOfDay = new Date(d);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(d);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const dayNormal = processedNormalRides.filter((r: any) => {
+        const rDate = new Date(r.createdAt);
+        return rDate >= startOfDay && rDate <= endOfDay;
+      });
+
+      const dayEmergency = processedEmergencyRides.filter((r: any) => {
+        const rDate = new Date(r.createdAt);
+        return rDate >= startOfDay && rDate <= endOfDay;
+      });
+
+      const normalFares = dayNormal.reduce((sum, r) => sum + r.fare, 0);
+      const emergencyFares = dayEmergency.reduce((sum, r) => sum + r.fare, 0);
+      const normalComm = dayNormal.reduce((sum, r) => sum + r.commissionAmount, 0);
+      const emergencyComm = dayEmergency.reduce((sum, r) => sum + r.emergencyCharge, 0);
+
+      chartData.push({
+        name: dayName,
+        fares: normalFares + emergencyFares,
+        commission: normalComm + emergencyComm,
+        driverShare: (normalFares + emergencyFares) - (normalComm + emergencyComm)
+      });
+    }
+
+    res.json({
+      settings: {
+        commissionPercentage: commissionPct,
+        emergencyCharges: emergencyFlatChg
+      },
+      metrics: {
+        totalCompletedRides,
+        totalCompletedNormalRides,
+        totalCompletedEmergencyRides,
+        totalRideFares,
+        totalCommissionCollected,
+        totalEmergencyChargesCollected,
+        totalPlatformEarnings,
+        totalDriverShare,
+        totalSettledAmount,
+        totalPendingSettlement
+      },
+      rides: allRides,
+      drivers: driverStats,
+      chartData
+    });
+  } catch (error: any) {
+    console.error("Error in /api/admin/commission-stats:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch platform commission stats." });
+  }
 });
 
 // Admin stats
@@ -3765,7 +4000,7 @@ app.post("/api/admin/bookings/:rideId/assign", authenticateToken, verifyAdmin, (
 });
 
 // Admin update booking status manually
-app.put("/api/admin/bookings/:rideId/status", authenticateToken, verifyAdmin, (req: any, res: any) => {
+app.put("/api/admin/bookings/:rideId/status", authenticateToken, verifyAdmin, async (req: any, res: any) => {
   const { rideId } = req.params;
   let { status } = req.body;
   
@@ -3800,7 +4035,52 @@ app.put("/api/admin/bookings/:rideId/status", authenticateToken, verifyAdmin, (r
     const drv = drivers.find(d => d.id === ride.driverId);
     if (drv) {
       drv.status = "available";
-      drv.completedTrips += 1;
+      if (oldStatus !== "completed" && oldStatus !== "Completed") {
+        drv.completedTrips += 1;
+      }
+    }
+
+    if (oldStatus !== "completed" && oldStatus !== "Completed") {
+      // Process referral first-ride rewards
+      if (ride.passengerId) {
+        ReferralService.processRideCompletion(ride.passengerId).catch(err => {
+          console.error("Error in ReferralService.processRideCompletion:", err);
+        });
+      }
+      
+      // Calculate fare
+      const chc = chcs.find(c => c.name === ride.destinationChc);
+      const chcVillage = chc ? chc.village : "Sherpur";
+      const distance = calculateVillageDistance(ride.village, chcVillage);
+      ride.distanceKm = distance;
+      ride.completedAt = Date.now();
+
+      const drvProfile = drv ? getOrCreateDriver(ride.driverId, drv) : null;
+      const vehicleType = drvProfile ? drvProfile.vehicleType : (ride.vehicleType || "Bolero SUV");
+      const speedKmh = vehicleType === "Bolero SUV" ? 45 : vehicleType === "Tractor Ambulance" ? 18 : vehicleType === "E-Rickshaw" ? 15 : 25;
+      const duration = Math.round((distance / speedKmh) * 60) + 3;
+      ride.durationMin = duration;
+
+      const baseFare = vehicleType === "Bolero SUV" ? 100 : vehicleType === "Tractor Ambulance" ? 150 : vehicleType === "E-Rickshaw" ? 30 : 50;
+      const perKmRate = vehicleType === "Bolero SUV" ? 15 : vehicleType === "Tractor Ambulance" ? 10 : vehicleType === "E-Rickshaw" ? 8 : 12;
+      const fare = Math.round(baseFare + (distance * perKmRate));
+      ride.fareRupees = fare;
+      ride.paymentStatus = "subsidized";
+
+      const emergencyFlatChg = adminSettings.emergencyCharges !== undefined ? adminSettings.emergencyCharges : 50;
+      const driverShare = Math.max(0, fare - emergencyFlatChg);
+
+      try {
+        await WalletService.createTransaction(
+          ride.driverId,
+          driverShare,
+          "credit",
+          `Earnings for Admin Override Completed Emergency Ride ${ride.id} (Fare: ₹${fare}, Platform Emergency Charge: ₹${emergencyFlatChg} deducted)`
+        );
+        console.log(`[Commission] Credited driver ${ride.driverId} with ₹${driverShare} for manual override completed emergency ride ${ride.id}`);
+      } catch (e) {
+        console.error("Failed to credit driver wallet for manual override completed emergency ride:", e);
+      }
     }
   }
   

@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { User, Phone, Lock, Home, Shield, Loader, Car, Compass } from "lucide-react";
+import { User, Phone, Lock, Home, Shield, Loader, Car, Compass, Gift, Check, AlertCircle } from "lucide-react";
 
 const VILLAGES = [
   "Sherpur",
@@ -34,6 +34,56 @@ export default function Register() {
   const [village, setVillage] = useState(VILLAGES[0]);
   const [customVillage, setCustomVillage] = useState("");
   const [isCustomVillage, setIsCustomVillage] = useState(false);
+
+  // Referral Details
+  const [referralCode, setReferralCode] = useState("");
+  const [isValidatingReferral, setIsValidatingReferral] = useState(false);
+  const [referralValidationResult, setReferralValidationResult] = useState<{ valid: boolean; message: string; referrerName?: string } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      setReferralCode(ref.toUpperCase());
+      validateRefCode(ref.toUpperCase());
+    }
+  }, []);
+
+  const validateRefCode = async (codeToValidate: string) => {
+    if (!codeToValidate.trim()) {
+      setReferralValidationResult(null);
+      return;
+    }
+    setIsValidatingReferral(true);
+    setReferralValidationResult(null);
+    try {
+      const res = await fetch("/api/referrals/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: codeToValidate.toUpperCase().trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        setReferralValidationResult({
+          valid: true,
+          message: `Valid code from ${data.referrerName || "a neighbor"}. You will receive a ₹50 credit bonus!`,
+          referrerName: data.referrerName
+        });
+      } else {
+        setReferralValidationResult({
+          valid: false,
+          message: data.error || "This referral code is invalid or expired."
+        });
+      }
+    } catch (err) {
+      setReferralValidationResult({
+        valid: false,
+        message: "Unable to verify code at this time."
+      });
+    } finally {
+      setIsValidatingReferral(false);
+    }
+  };
 
   // Driver Specific Details
   const [vehicleType, setVehicleType] = useState(VEHICLE_TYPES[0]);
@@ -74,7 +124,8 @@ export default function Register() {
         role,
         village: finalVillage,
         vehicleType: role === "driver" ? vehicleType : undefined,
-        vehicleNumber: role === "driver" ? vehicleNumber.trim() : undefined
+        vehicleNumber: role === "driver" ? vehicleNumber.trim() : undefined,
+        referralCode: referralCode.trim() || undefined
       });
 
       // Redirect based on role
@@ -329,6 +380,53 @@ export default function Register() {
               </div>
             </div>
           )}
+
+          {/* Referral Code (Optional) */}
+          <div className="space-y-2 border-t border-slate-100 pt-4">
+            <label htmlFor="reg-referral" className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Referral Code (Optional)
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-grow">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+                  <Gift className="w-4 h-4" />
+                </span>
+                <input
+                  id="reg-referral"
+                  type="text"
+                  placeholder="e.g. AMIT50"
+                  value={referralCode}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                    setReferralCode(val);
+                    if (!val) setReferralValidationResult(null);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-slate-800 font-mono font-bold uppercase focus:outline-none focus:border-orange-500 focus:bg-white transition duration-200"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => validateRefCode(referralCode)}
+                disabled={isValidatingReferral || !referralCode.trim()}
+                className="px-4 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-xl transition duration-200 cursor-pointer flex items-center gap-1 shrink-0"
+              >
+                {isValidatingReferral ? "Verifying..." : "Verify Code"}
+              </button>
+            </div>
+
+            {referralValidationResult && (
+              <div className={`text-xs font-bold flex items-center space-x-1.5 mt-1.5 ${
+                referralValidationResult.valid ? "text-emerald-600" : "text-red-500"
+              }`}>
+                {referralValidationResult.valid ? (
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                )}
+                <span>{referralValidationResult.message}</span>
+              </div>
+            )}
+          </div>
 
           {/* Submit Button */}
           <button

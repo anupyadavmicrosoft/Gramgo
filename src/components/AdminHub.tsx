@@ -129,7 +129,7 @@ interface Permission {
 
 export default function AdminHub() {
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals">("emergency-dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission">("emergency-dashboard");
 
   // State Management
   const [metrics, setMetrics] = useState<any>(null);
@@ -317,6 +317,76 @@ export default function AdminHub() {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  // Platform Commission States and Logic
+  const [commissionData, setCommissionData] = useState<any>(null);
+  const [isLoadingCommission, setIsLoadingCommission] = useState(false);
+  const [commissionError, setCommissionError] = useState("");
+  const [inputPct, setInputPct] = useState(10);
+  const [inputCharges, setInputCharges] = useState(50);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [commSearchTerm, setCommSearchTerm] = useState("");
+  const [commTypeFilter, setCommTypeFilter] = useState("all");
+  const [commDriverSearch, setCommDriverSearch] = useState("");
+
+  const fetchCommissionStats = async () => {
+    setIsLoadingCommission(true);
+    setCommissionError("");
+    try {
+      const response = await fetch("/api/admin/commission-stats", {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch commission statistics");
+      }
+      const data = await response.json();
+      setCommissionData(data);
+      if (data.settings) {
+        setInputPct(data.settings.commissionPercentage);
+        setInputCharges(data.settings.emergencyCharges);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setCommissionError(err.message || "An error occurred");
+    } finally {
+      setIsLoadingCommission(false);
+    }
+  };
+
+  const handleSaveCommissionSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          commissionPercentage: inputPct,
+          emergencyCharges: inputCharges
+        })
+      });
+      if (!response.ok) {
+        throw new Error("Failed to update settings");
+      }
+      showToast("Platform commission settings updated successfully!", "success");
+      fetchCommissionStats();
+    } catch (err: any) {
+      showToast(err.message || "Failed to update commission settings", "error");
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "commission" && token) {
+      fetchCommissionStats();
+    }
+  }, [activeTab, token]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -1567,6 +1637,7 @@ export default function AdminHub() {
             { id: "admins", label: "Admin Management", icon: Users, badge: adminTotalCount },
             { id: "priority-engine", label: "Priority Dispatch Engine", icon: ShieldAlert, badge: priorityStatus?.activeStates?.filter((s: any) => s.status === "searching").length || "" },
             { id: "refund-approvals", label: "Wallet & Refund Claims", icon: IndianRupee },
+            { id: "commission", label: "Platform Commission", icon: TrendingUp },
             { id: "notifications", label: "Emergency Alerts Log", icon: Bell }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -3583,6 +3654,378 @@ export default function AdminHub() {
                 </p>
               </div>
               <WalletDashboard userId={user?.id || ""} token={token} role="admin" />
+            </div>
+          )}
+
+          {/* Platform Commission Administrative Dashboard */}
+          {activeTab === "commission" && (
+            <div className="lg:col-span-9 space-y-6">
+              
+              {/* Header Title */}
+              <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-emerald-600" />
+                      Platform Commission & Settlement Hub
+                    </h3>
+                    <p className="text-xs text-slate-500 font-semibold leading-relaxed">
+                      Configure commission rules, inspect platform earnings logs, audit driver payouts, and process settlements dynamically.
+                    </p>
+                  </div>
+                  <button
+                    onClick={fetchCommissionStats}
+                    disabled={isLoadingCommission}
+                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-xs font-black uppercase rounded-xl border border-slate-100 flex items-center space-x-1 cursor-pointer transition-all"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCommission ? "animate-spin" : ""}`} />
+                    <span>Refresh Stats</span>
+                  </button>
+                </div>
+              </div>
+
+              {isLoadingCommission && !commissionData ? (
+                <div className="bg-white border border-slate-100 rounded-3xl p-12 text-center shadow-sm">
+                  <RefreshCw className="w-8 h-8 text-emerald-600 animate-spin mx-auto mb-4" />
+                  <p className="text-sm font-extrabold text-slate-900">Loading platform commission database...</p>
+                  <p className="text-xs text-slate-400 font-medium mt-1">Calculating gross earnings, commission breakdowns, and driver settlements.</p>
+                </div>
+              ) : commissionError ? (
+                <div className="bg-red-50 border border-red-100 rounded-3xl p-6 text-red-700 shadow-sm space-y-2">
+                  <h4 className="text-sm font-black uppercase tracking-wider">Database Connection Error</h4>
+                  <p className="text-xs font-semibold">{commissionError}</p>
+                  <button 
+                    onClick={fetchCommissionStats}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase"
+                  >
+                    Retry Loading
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Summary Metrics Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl p-5 shadow-sm space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div className="p-2.5 bg-white/10 rounded-xl">
+                          <TrendingUp className="w-5 h-5 text-emerald-400" />
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Total Earnings</span>
+                      </div>
+                      <div>
+                        <span className="text-2xl font-black block">₹{commissionData?.metrics?.totalPlatformEarnings?.toLocaleString() || "0"}</span>
+                        <span className="text-[10px] font-medium text-slate-400">Net Platform Commission</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div className="p-2.5 bg-emerald-50 rounded-xl">
+                          <IndianRupee className="w-5 h-5 text-emerald-600" />
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gross Fares</span>
+                      </div>
+                      <div>
+                        <span className="text-2xl font-black block text-slate-900">₹{commissionData?.metrics?.totalRideFares?.toLocaleString() || "0"}</span>
+                        <span className="text-[10px] font-bold text-slate-500">Across {commissionData?.metrics?.totalCompletedRides || "0"} trips</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div className="p-2.5 bg-blue-50 rounded-xl">
+                          <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Settled</span>
+                      </div>
+                      <div>
+                        <span className="text-2xl font-black block text-slate-900">₹{commissionData?.metrics?.totalSettledAmount?.toLocaleString() || "0"}</span>
+                        <span className="text-[10px] font-bold text-emerald-600">Disbursed to Pilots</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div className="p-2.5 bg-amber-50 rounded-xl">
+                          <Clock className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pending Settlement</span>
+                      </div>
+                      <div>
+                        <span className="text-2xl font-black block text-slate-900">₹{commissionData?.metrics?.totalPendingSettlement?.toLocaleString() || "0"}</span>
+                        <span className="text-[10px] font-bold text-amber-600">In Withdrawal Queue</span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Config settings & visual chart bento row */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    
+                    {/* Config form */}
+                    <div className="lg:col-span-4 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900">Commission Rules Configuration</h4>
+                          <p className="text-[11px] text-slate-400 font-medium">Update real-time platform deduction rules and surcharges.</p>
+                        </div>
+
+                        <form onSubmit={handleSaveCommissionSettings} className="space-y-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Standard Commission Percentage (%)</label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                required
+                                value={inputPct}
+                                onChange={(e) => setInputPct(Number(e.target.value))}
+                                className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-100 focus:bg-white focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-700 rounded-xl"
+                              />
+                              <span className="absolute right-3 top-2 text-xs font-bold text-slate-400">%</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 leading-normal block">Applied exclusively to standard on-demand rides (Auto, Car, Bike).</span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Flat Emergency Platform Charge (₹)</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">₹</span>
+                              <input
+                                type="number"
+                                min="0"
+                                required
+                                value={inputCharges}
+                                onChange={(e) => setInputCharges(Number(e.target.value))}
+                                className="w-full pl-7 pr-3 py-2 bg-slate-50 border border-slate-100 focus:bg-white focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-700 rounded-xl"
+                              />
+                            </div>
+                            <span className="text-[10px] text-slate-400 leading-normal block">Platform handling surcharge deducted per completed emergency transit.</span>
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={isSavingSettings}
+                            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase cursor-pointer"
+                          >
+                            {isSavingSettings ? "Saving Settings..." : "Save Commission Rules"}
+                          </button>
+                        </form>
+                      </div>
+
+                      <div className="mt-6 pt-4 border-t border-slate-50 text-[11px] text-slate-400 font-semibold space-y-1.5 leading-normal">
+                        <p className="text-slate-500">Commission Formula Indicators:</p>
+                        <p>• Standard: <span className="text-slate-800">Driver Share = Fare × (100 - {commissionData?.settings?.commissionPercentage || 10}%)</span></p>
+                        <p>• Emergency: <span className="text-slate-800">Driver Share = Fare - ₹{commissionData?.settings?.emergencyCharges || 50} Surcharge</span></p>
+                      </div>
+                    </div>
+
+                    {/* Recharts chart block */}
+                    <div className="lg:col-span-8 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900">Platform Financial Analytics</h4>
+                        <p className="text-[11px] text-slate-400 font-medium">Weekly breakdown comparing total fares, commission collected, and net driver payouts.</p>
+                      </div>
+
+                      <div className="h-60">
+                        {commissionData?.chartData && commissionData.chartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={commissionData.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="colorFares" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                </linearGradient>
+                                <linearGradient id="colorCommission" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#0f172a" stopOpacity={0.1}/>
+                                  <stop offset="95%" stopColor="#0f172a" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                              <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                              <Tooltip contentStyle={{ borderRadius: "16px", border: "1px solid #f1f5f9" }} />
+                              <Legend iconType="circle" wrapperStyle={{ fontSize: "10px", fontWeight: "bold" }} />
+                              <Area name="Gross Fares" type="monotone" dataKey="fares" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorFares)" />
+                              <Area name="Platform Commission" type="monotone" dataKey="commission" stroke="#0f172a" strokeWidth={2} fillOpacity={1} fill="url(#colorCommission)" />
+                              <Area name="Driver Share" type="monotone" dataKey="driverShare" stroke="#3b82f6" strokeWidth={2} fillOpacity={0} />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-xs text-slate-400 font-semibold">
+                            No visual data points available
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Completed Rides Table Ledger */}
+                  <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900">All Completed Rides Ledger</h4>
+                        <p className="text-[11px] text-slate-400 font-medium">Audit logs of completed standard and emergency transits with financial breakdown.</p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:flex-none">
+                          <span className="absolute left-3 top-2.5 text-slate-400">
+                            <Search className="w-3.5 h-3.5" />
+                          </span>
+                          <input
+                            type="text"
+                            placeholder="Search by ID or Rider..."
+                            value={commSearchTerm}
+                            onChange={(e) => setCommSearchTerm(e.target.value)}
+                            className="w-full sm:w-48 pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-100 focus:bg-white focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-700 rounded-xl"
+                          />
+                        </div>
+
+                        <select
+                          value={commTypeFilter}
+                          onChange={(e) => setCommTypeFilter(e.target.value)}
+                          className="px-3 py-1.5 bg-slate-50 border border-slate-100 text-xs font-bold text-slate-700 rounded-xl cursor-pointer outline-none focus:bg-white"
+                        >
+                          <option value="all">All Transits</option>
+                          <option value="Bike">Bike Only</option>
+                          <option value="Auto">Auto Only</option>
+                          <option value="Car">Car Only</option>
+                          <option value="Emergency">Emergency Only</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-400 uppercase font-bold text-[9px] tracking-wider border-b border-slate-100">
+                            <th className="p-4">Ride ID</th>
+                            <th className="p-4">Passenger/Patient</th>
+                            <th className="p-4">Driver</th>
+                            <th className="p-4">Type</th>
+                            <th className="p-4 text-right">Fare (₹)</th>
+                            <th className="p-4 text-right">Comm (%)</th>
+                            <th className="p-4 text-right">Commission (₹)</th>
+                            <th className="p-4 text-right">Emerg. Fee (₹)</th>
+                            <th className="p-4 text-right font-black text-slate-900">Driver Net (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 font-semibold text-slate-700">
+                          {commissionData?.rides && commissionData.rides.length > 0 ? (
+                            commissionData.rides
+                              .filter((r: any) => {
+                                const s = commSearchTerm.toLowerCase();
+                                const matchesSearch = 
+                                  r.id.toLowerCase().includes(s) ||
+                                  r.passengerName.toLowerCase().includes(s) ||
+                                  r.driverName.toLowerCase().includes(s);
+                                
+                                const matchesType = commTypeFilter === "all" || r.rideType === commTypeFilter;
+                                return matchesSearch && matchesType;
+                              })
+                              .map((r: any) => (
+                                <tr key={r.id} className="hover:bg-slate-50/50 transition">
+                                  <td className="p-4 font-mono text-[10px] text-slate-500">{r.id}</td>
+                                  <td className="p-4 font-extrabold text-slate-900">{r.passengerName}</td>
+                                  <td className="p-4">{r.driverName}</td>
+                                  <td className="p-4">
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                      r.rideType === "Emergency" 
+                                        ? "bg-rose-50 text-rose-700 border border-rose-100" 
+                                        : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                                    }`}>
+                                      {r.rideType}
+                                    </span>
+                                  </td>
+                                  <td className="p-4 text-right">₹{r.fare}</td>
+                                  <td className="p-4 text-right text-slate-400">{r.commissionPercentage}%</td>
+                                  <td className="p-4 text-right text-slate-500">₹{r.commissionAmount}</td>
+                                  <td className="p-4 text-right text-slate-500">₹{r.emergencyCharge}</td>
+                                  <td className="p-4 text-right font-extrabold text-emerald-600 bg-emerald-50/20">₹{r.driverShare}</td>
+                                </tr>
+                              ))
+                          ) : (
+                            <tr>
+                              <td colSpan={9} className="p-8 text-center text-slate-400">No completed transits found in database.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Driver Settlements & Earnings Ledger */}
+                  <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-900">Volunteer Driver Settlement Ledgers</h4>
+                        <p className="text-[11px] text-slate-400 font-medium">Real-time driver balances tracking gross earnings, commission deductions, settled amounts, and available balances.</p>
+                      </div>
+
+                      <div className="relative w-full sm:w-auto">
+                        <span className="absolute left-3 top-2.5 text-slate-400">
+                          <Search className="w-3.5 h-3.5" />
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="Search Driver Name..."
+                          value={commDriverSearch}
+                          onChange={(e) => setCommDriverSearch(e.target.value)}
+                          className="w-full sm:w-48 pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-100 focus:bg-white focus:outline-none focus:border-emerald-500 text-xs font-bold text-slate-700 rounded-xl"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-400 uppercase font-bold text-[9px] tracking-wider border-b border-slate-100">
+                            <th className="p-4">Driver Name</th>
+                            <th className="p-4">Vehicle</th>
+                            <th className="p-4 text-center">Completed Trips</th>
+                            <th className="p-4 text-right">Gross Earnings (₹)</th>
+                            <th className="p-4 text-right">Commission Deducted (₹)</th>
+                            <th className="p-4 text-right font-black text-blue-700">Net Earned (₹)</th>
+                            <th className="p-4 text-right text-emerald-700">Settled / Paid (₹)</th>
+                            <th className="p-4 text-right font-black text-rose-700 bg-rose-50/20">Available Balance (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 font-semibold text-slate-700">
+                          {commissionData?.drivers && commissionData.drivers.length > 0 ? (
+                            commissionData.drivers
+                              .filter((d: any) => d.name.toLowerCase().includes(commDriverSearch.toLowerCase()))
+                              .map((d: any) => (
+                                <tr key={d.id} className="hover:bg-slate-50/50 transition">
+                                  <td className="p-4 font-extrabold text-slate-900">
+                                    <div>{d.name}</div>
+                                    <div className="text-[10px] text-slate-400 font-medium">{d.phone}</div>
+                                  </td>
+                                  <td className="p-4 text-slate-500">{d.vehicleType}</td>
+                                  <td className="p-4 text-center font-bold text-slate-900">{d.completedTrips}</td>
+                                  <td className="p-4 text-right">₹{d.totalEarned?.toLocaleString()}</td>
+                                  <td className="p-4 text-right text-slate-400">₹{d.commissionDeducted?.toLocaleString()}</td>
+                                  <td className="p-4 text-right font-extrabold text-blue-600">₹{d.netEarned?.toLocaleString()}</td>
+                                  <td className="p-4 text-right text-emerald-600">₹{d.withdrawn?.toLocaleString()}</td>
+                                  <td className="p-4 text-right font-extrabold text-rose-600 bg-rose-50/20">₹{d.availableBalance?.toLocaleString()}</td>
+                                </tr>
+                              ))
+                          ) : (
+                            <tr>
+                              <td colSpan={8} className="p-8 text-center text-slate-400">No active drivers in registry.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </>
+              )}
+
             </div>
           )}
 

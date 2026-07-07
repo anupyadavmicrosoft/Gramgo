@@ -17,6 +17,7 @@ interface AuthContextType {
     village: string;
     vehicleType?: string;
     vehicleNumber?: string;
+    referralCode?: string;
   }) => Promise<User>;
   logout: () => void;
   clearError: () => void;
@@ -105,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     village: string;
     vehicleType?: string;
     vehicleNumber?: string;
+    referralCode?: string;
   }): Promise<User> => {
     setLoading(true);
     setError(null);

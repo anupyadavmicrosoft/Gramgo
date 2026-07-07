@@ -26,7 +26,8 @@ import {
   Info,
   X,
   Search,
-  Coins
+  Coins,
+  Gift
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { EmergencyRide, RideCancellationLog } from "../types";
@@ -34,6 +35,7 @@ import { RideSummaryModal } from "./RideSummaryModal";
 import CurrentLocationTracker from "./CurrentLocationTracker";
 import MapComponent from "./MapComponent";
 import WalletDashboard from "./WalletDashboard";
+import ReferralDashboard from "./ReferralDashboard";
 
 interface RequestCardProps {
   key?: any;
@@ -164,7 +166,7 @@ export default function DriverHub() {
   const { user, token, logout, refreshUser } = useAuth();
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<"dashboard" | "documents" | "history" | "earnings" | "profile" | "cancellations" | "wallet">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "documents" | "history" | "earnings" | "profile" | "cancellations" | "wallet" | "referral">("dashboard");
   
   // Core Driver Data States
   const [stats, setStats] = useState<DriverStats | null>(null);
@@ -656,6 +658,7 @@ export default function DriverHub() {
             { id: "cancellations", label: "Cancellations Log", icon: XCircle, badge: cancellationLogs.length },
             { id: "earnings", label: "Subsidy & Earnings", icon: DollarSign },
             { id: "wallet", label: "My Subsidy Wallet", icon: Coins },
+            { id: "referral", label: "Refer & Earn", icon: Gift },
             { id: "profile", label: "Vehicle & Profile", icon: User }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1374,6 +1377,17 @@ export default function DriverHub() {
                 <p className="text-xs text-slate-500 font-semibold mt-0.5">Manage your pilot transport grants and digital wallet incentives.</p>
               </div>
               <WalletDashboard userId={user?.id || ""} token={token} role="driver" />
+            </div>
+          )}
+
+          {/* Tab: Referral */}
+          {activeTab === "referral" && (
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 space-y-6 shadow-sm">
+              <div className="border-b border-emerald-50 pb-4">
+                <h2 className="text-lg font-black text-slate-800">Referral Program</h2>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">Share your driver code to onboard village friends and earn joint benefits.</p>
+              </div>
+              <ReferralDashboard token={token} onRewardClaimed={refreshUser} />
             </div>
           )}
 
