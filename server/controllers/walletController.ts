@@ -54,7 +54,7 @@ export class WalletController {
         return res.status(401).json({ error: "Access denied. Authentication required." });
       }
 
-      const { type, status, page, limit } = req.query;
+      const { type, status, search, startDate, endDate, page, limit } = req.query;
 
       const pageNum = parseInt(page as string) || 1;
       const limitNum = parseInt(limit as string) || 10;
@@ -63,7 +63,10 @@ export class WalletController {
         user.id,
         {
           type: type as string,
-          status: status as string
+          status: status as string,
+          search: search as string,
+          startDate: startDate as string,
+          endDate: endDate as string
         },
         {
           page: pageNum,

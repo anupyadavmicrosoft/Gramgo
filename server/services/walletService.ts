@@ -99,52 +99,118 @@ export class WalletService {
   }
 
   /**
-   * Get user's transaction history with custom filters and pagination
+   * Get user's transaction history with custom filters, search, date range, and pagination
    */
   static async getTransactionHistory(
     userId: string,
     filters: {
       type?: string;
       status?: string;
+      search?: string;
+      startDate?: string;
+      endDate?: string;
     } = {},
     pagination: {
       page: number;
       limit: number;
     } = { page: 1, limit: 10 }
   ): Promise<{
-    transactions: IWalletTransaction[];
+    transactions: (IWalletTransaction & { runningBalance?: number })[];
     total: number;
     page: number;
     limit: number;
     totalPages: number;
+    openingBalance: number;
+    closingBalance: number;
   }> {
     // Auto-create wallet if not exist to ensure consistent initial welcome state log
-    await this.getOrCreateWallet(userId);
+    const wallet = await this.getOrCreateWallet(userId);
 
     const allTx = await WalletTransactionDb.findByUserId(userId);
 
-    // Apply filters
-    let filtered = allTx;
+    // Calculate running balance for each transaction chronologically (oldest to newest)
+    const sortedChronologically = [...allTx].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
+    let balanceAccumulator = 0;
+    const txWithBalances = sortedChronologically.map(tx => {
+      if (tx.type === "debit") {
+        balanceAccumulator -= tx.amount;
+      } else {
+        balanceAccumulator += tx.amount;
+      }
+      return {
+        ...tx,
+        runningBalance: balanceAccumulator
+      };
+    });
+
+    // Apply advanced filters
+    let filtered = txWithBalances;
+
     if (filters.type && filters.type !== "all") {
       filtered = filtered.filter(tx => tx.type === filters.type);
     }
     if (filters.status && filters.status !== "all") {
       filtered = filtered.filter(tx => tx.status === filters.status);
     }
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase().trim();
+      filtered = filtered.filter(tx => 
+        tx.description.toLowerCase().includes(searchLower) ||
+        tx.id.toLowerCase().includes(searchLower)
+      );
+    }
+    if (filters.startDate) {
+      const start = new Date(filters.startDate);
+      filtered = filtered.filter(tx => new Date(tx.createdAt) >= start);
+    }
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(tx => new Date(tx.createdAt) <= end);
+    }
+
+    // Calculate opening and closing balances for this filtered selection
+    let openingBalance = wallet.balance;
+    let closingBalance = wallet.balance;
+
+    if (filtered.length > 0) {
+      const oldestTx = filtered[0];
+      const latestTx = filtered[filtered.length - 1];
+
+      // Opening balance is the running balance BEFORE the oldest transaction in the filtered subset
+      let calculatedOpening = oldestTx.runningBalance;
+      if (oldestTx.type === "debit") {
+        calculatedOpening += oldestTx.amount;
+      } else {
+        calculatedOpening -= oldestTx.amount;
+      }
+      openingBalance = calculatedOpening;
+
+      // Closing balance is the running balance AFTER the latest transaction in the filtered subset
+      closingBalance = latestTx.runningBalance;
+    }
+
+    // Sort descending (newest first) for paginated display
+    const newestFirst = [...filtered].reverse();
 
     // Paginate
-    const total = filtered.length;
+    const total = newestFirst.length;
     const { page, limit } = pagination;
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
-    const paginated = filtered.slice(startIndex, endIndex);
+    const paginated = newestFirst.slice(startIndex, endIndex);
 
     return {
       transactions: paginated,
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit) || 1
+      totalPages: Math.ceil(total / limit) || 1,
+      openingBalance,
+      closingBalance
     };
   }
 

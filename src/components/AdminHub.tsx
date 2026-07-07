@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import WalletDashboard from "./WalletDashboard";
 import { 
   LayoutDashboard, 
   Bell,
@@ -128,7 +129,7 @@ interface Permission {
 
 export default function AdminHub() {
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard">("emergency-dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals">("emergency-dashboard");
 
   // State Management
   const [metrics, setMetrics] = useState<any>(null);
@@ -1565,6 +1566,7 @@ export default function AdminHub() {
             { id: "roles", label: "Roles & Permissions", icon: ShieldAlert },
             { id: "admins", label: "Admin Management", icon: Users, badge: adminTotalCount },
             { id: "priority-engine", label: "Priority Dispatch Engine", icon: ShieldAlert, badge: priorityStatus?.activeStates?.filter((s: any) => s.status === "searching").length || "" },
+            { id: "refund-approvals", label: "Wallet & Refund Claims", icon: IndianRupee },
             { id: "notifications", label: "Emergency Alerts Log", icon: Bell }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -3568,6 +3570,19 @@ export default function AdminHub() {
           {activeTab === "notifications" && (
             <div className="lg:col-span-9 space-y-6">
               <EmergencyNotificationsLog />
+            </div>
+          )}
+
+          {/* Wallet & Refund Claims Administration Section */}
+          {activeTab === "refund-approvals" && (
+            <div className="lg:col-span-9 space-y-6" id="refund-claims-tab-panel">
+              <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-3">
+                <h3 className="text-base font-black text-slate-900 uppercase tracking-wide">Panchayat Wallet & Refund Claims Panel</h3>
+                <p className="text-xs text-slate-500 font-semibold leading-relaxed">
+                  Review filed user claims, verify transaction reference details, and authorize balance adjustments. Approved refund requests instantly credit the user's digital wallet.
+                </p>
+              </div>
+              <WalletDashboard userId={user?.id || ""} token={token} role="admin" />
             </div>
           )}
 

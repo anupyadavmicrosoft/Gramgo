@@ -157,6 +157,31 @@ export const WalletTransactionDb = {
     return { ...newTx };
   },
 
+  async updateStatus(id: string, status: "completed" | "failed", description?: string): Promise<IWalletTransaction | null> {
+    if (isMongoActive() && MongoWalletTransactionModel) {
+      const updateData: any = { status };
+      if (description) {
+        updateData.description = description;
+      }
+      const doc = await MongoWalletTransactionModel.findOneAndUpdate(
+        { id },
+        { $set: updateData },
+        { new: true }
+      );
+      return doc ? doc.toObject() : null;
+    }
+
+    const found = memoryTransactionStore.find(tx => tx.id === id);
+    if (found) {
+      found.status = status;
+      if (description) {
+        found.description = description;
+      }
+      return { ...found };
+    }
+    return null;
+  },
+
   async findAll(): Promise<IWalletTransaction[]> {
     if (isMongoActive() && MongoWalletTransactionModel) {
       const docs = await MongoWalletTransactionModel.find({}).sort({ createdAt: -1 });
