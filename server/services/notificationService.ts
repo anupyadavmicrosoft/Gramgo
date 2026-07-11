@@ -2,6 +2,7 @@ import { EmergencyRide } from "../../src/types";
 import { EmergencyNotificationDb, IEmergencyNotification, INotificationChannelStatus } from "../models/EmergencyNotification";
 import { EmergencyContactDb } from "../models/EmergencyContact";
 import { UserDb } from "../models/User";
+import { UserNotificationDb } from "../models/UserNotification";
 
 export class NotificationService {
   /**
@@ -57,6 +58,72 @@ export class NotificationService {
             createdAt: Date.now(),
             read: false
           });
+        }
+      }
+
+      // Generate in-app push notifications for the actual passenger
+      if (ride.passengerId) {
+        let passengerTitle = "";
+        let passengerBody = "";
+        
+        if (eventType === "Emergency Requested") {
+          passengerTitle = "🚨 Emergency Broadcast Initiated";
+          passengerBody = `Locating volunteer ambulance heroes near you. Rest assured, your panic alert is dispatched.`;
+        } else if (eventType === "Driver Assigned") {
+          passengerTitle = "✅ Driver Matched!";
+          passengerBody = `Volunteer hero ${ride.driverName || "Driver"} is assigned to transport you using a ${ride.vehicleType || "Ambulance"}. Contact: ${ride.driverPhone || ""}.`;
+        } else if (eventType === "Driver Arriving") {
+          passengerTitle = "⚡ Driver Arriving";
+          passengerBody = `${ride.driverName || "Your driver"} is nearing your pickup landmark: ${ride.landmark || "village center"}.`;
+        } else if (eventType === "Passenger Picked") {
+          passengerTitle = "🏥 En Route to CHC";
+          passengerBody = `Transit successfully started. Safe corridor routing active to ${ride.destinationChc || "nearest hospital"}.`;
+        } else if (eventType === "Hospital Reached") {
+          passengerTitle = "🏁 Arrived at Hospital";
+          passengerBody = `Safe arrival at ${ride.destinationChc || "CHC"}. Coordination with staff started.`;
+        } else if (eventType === "Completed") {
+          passengerTitle = "💖 Trip Safely Completed";
+          passengerBody = "We hope you are getting the care you need. Thank you for using GramGo.";
+        } else if (eventType === "Cancelled") {
+          passengerTitle = "⚠️ Emergency Booking Cancelled";
+          passengerBody = `Your booking was cancelled. If this is incorrect, please request transit again immediately.`;
+        }
+
+        if (passengerTitle) {
+          await UserNotificationDb.create({
+            userId: ride.passengerId,
+            title: passengerTitle,
+            body: passengerBody,
+            type: "ride_alert",
+            data: { rideId: ride.id, eventType }
+          }).catch(e => console.error("Error creating passenger push notification:", e));
+        }
+      }
+
+      // Generate in-app push notifications for the driver
+      if (ride.driverId) {
+        let driverTitle = "";
+        let driverBody = "";
+
+        if (eventType === "Driver Assigned") {
+          driverTitle = "🚨 Emergency Dispatch Assigned!";
+          driverBody = `You are confirmed for patient ${ride.patientName} from ${ride.village}. Destination: ${ride.destinationChc || "nearest CHC"}.`;
+        } else if (eventType === "Completed") {
+          driverTitle = "💰 Payout Credited!";
+          driverBody = `Outstanding job! ₹500 subsidy incentive voucher successfully credited to your GramGo wallet.`;
+        } else if (eventType === "Cancelled") {
+          driverTitle = "⚠️ Dispatch Cancelled";
+          driverBody = `The emergency request for patient ${ride.patientName} has been cancelled.`;
+        }
+
+        if (driverTitle) {
+          await UserNotificationDb.create({
+            userId: ride.driverId,
+            title: driverTitle,
+            body: driverBody,
+            type: "ride_alert",
+            data: { rideId: ride.id, eventType }
+          }).catch(e => console.error("Error creating driver push notification:", e));
         }
       }
     } catch (err) {

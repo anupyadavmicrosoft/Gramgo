@@ -17,9 +17,27 @@ import {
   ChevronRight,
   ShieldAlert,
   SlidersHorizontal,
-  Plus
+  Plus,
+  Edit,
+  Award,
+  AlertTriangle,
+  Car,
+  ShieldCheck,
+  Users
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  BarChart,
+  Bar,
+  Cell,
+  Legend
+} from "recharts";
 
 interface RatingSystemProps {
   role: "passenger" | "driver" | "admin";
@@ -39,6 +57,17 @@ interface Review {
   rating: number;
   comment?: string;
   createdAt: string;
+  edited?: boolean;
+  likes?: string[];
+  reported?: boolean;
+  reportsCount?: number;
+  reportedBy?: string[];
+  reply?: {
+    text: string;
+    userId: string;
+    userName: string;
+    createdAt: string;
+  };
 }
 
 interface UserStats {
@@ -61,6 +90,7 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [completedRides, setCompletedRides] = useState<any[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
+  const [globalAnalytics, setGlobalAnalytics] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -77,6 +107,16 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  // Edit Review Modal
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingReview, setEditingReview] = useState<Review | null>(null);
+  const [editRating, setEditRating] = useState<number>(5);
+  const [editComment, setEditComment] = useState("");
+
+  // Reply state
+  const [replyingReviewId, setReplyingReviewId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
 
   // Admin filter states
   const [adminSearch, setAdminSearch] = useState("");
@@ -152,6 +192,15 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
           const statsData = await statsRes.json();
           setCompletedRides(statsData.rideHistory || []);
         }
+      }
+
+      // 4. Fetch global rating analytics (accessible to authorized users for reporting/insights)
+      const analyticsRes = await fetch("/api/reviews/global-analytics", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (analyticsRes.ok) {
+        const analyticsData = await analyticsRes.json();
+        setGlobalAnalytics(analyticsData);
       }
     } catch (err) {
       console.error("Error loading rating data:", err);
@@ -255,6 +304,110 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
     }
   };
 
+  // Like review handler
+  const handleLikeReview = async (id: string) => {
+    try {
+      const res = await fetch(`/api/reviews/${id}/like`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchData();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to like review.");
+      }
+    } catch (err) {
+      alert("Server connection error.");
+    }
+  };
+
+  // Report review handler
+  const handleReportReview = async (id: string) => {
+    if (!window.confirm("Are you sure you want to report this review to the Panchayat board?")) return;
+    try {
+      const res = await fetch(`/api/reviews/${id}/report`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        alert("Thank you. This review has been flagged and reported for Panchayat review.");
+        fetchData();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to report review.");
+      }
+    } catch (err) {
+      alert("Server connection error.");
+    }
+  };
+
+  // Reply submit handler
+  const handleReplySubmit = async (reviewId: string) => {
+    if (!replyText.trim()) return;
+    try {
+      const res = await fetch(`/api/reviews/${reviewId}/reply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ text: replyText })
+      });
+      if (res.ok) {
+        setReplyText("");
+        setReplyingReviewId(null);
+        fetchData();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to submit reply.");
+      }
+    } catch (err) {
+      alert("Server connection error.");
+    }
+  };
+
+  // Open edit modal handler
+  const handleOpenEdit = (review: Review) => {
+    setEditingReview(review);
+    setEditRating(review.rating);
+    setEditComment(review.comment || "");
+    setEditModalOpen(true);
+  };
+
+  // Submit edited review handler
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingReview) return;
+    setSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/reviews/${editingReview.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          rating: editRating,
+          comment: editComment
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setEditModalOpen(false);
+        fetchData();
+      } else {
+        alert(data.error || "Failed to update review.");
+      }
+    } catch (err) {
+      alert("Server connection error.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Reviews given by user
   const reviewsGiven = reviews.filter(r => r.reviewerId === user?.id);
   // Reviews received by user
@@ -286,6 +439,358 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
         {[...Array(5)].map((_, i) => (
           <Star key={i} className={`w-3.5 h-3.5 ${i < Math.round(rating) ? "fill-amber-400 text-amber-400" : "text-slate-200"}`} />
         ))}
+      </div>
+    );
+  };
+
+  // Render Global Rating Analytics for administrators/governance board
+  const renderGlobalAnalytics = () => {
+    if (!globalAnalytics) {
+      return (
+        <div className="py-24 text-center space-y-3">
+          <div className="w-10 h-10 border-4 border-slate-900 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Compiling community feedback matrices...</p>
+        </div>
+      );
+    }
+
+    const positiveCount = (globalAnalytics.ratingDistribution?.[5] || 0) + (globalAnalytics.ratingDistribution?.[4] || 0);
+    const positivePercentage = globalAnalytics.totalReviews > 0
+      ? Math.round((positiveCount / globalAnalytics.totalReviews) * 100)
+      : 100;
+
+    return (
+      <div className="space-y-8">
+        {/* KPI Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-3 hover:shadow-md transition">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Overall Trust Score</span>
+              <span className="p-1.5 bg-amber-50 text-amber-500 rounded-lg text-xs">⭐</span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-3xl font-black text-slate-900 flex items-baseline gap-1">
+                {globalAnalytics.overallAverage || "4.7"}
+                <span className="text-xs text-slate-400 font-semibold">/ 5</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {renderStars(globalAnalytics.overallAverage || 4.7)}
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold pt-1 uppercase">
+                From {globalAnalytics.totalReviews} total reviews
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-3 hover:shadow-md transition">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Driver Average</span>
+              <span className="p-1.5 bg-emerald-50 text-emerald-500 rounded-lg text-xs">🛡️</span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-3xl font-black text-slate-900 flex items-baseline gap-1">
+                {globalAnalytics.driverAverage || "4.7"}
+                <span className="text-xs text-slate-400 font-semibold">/ 5</span>
+              </div>
+              <p className="text-xs text-slate-500 font-semibold">Transit health rating</p>
+              <p className="text-[10px] text-emerald-600 font-bold uppercase pt-1">
+                Excellent driver metrics
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-3 hover:shadow-md transition">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Passenger Average</span>
+              <span className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg text-xs">🤝</span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-3xl font-black text-slate-900 flex items-baseline gap-1">
+                {globalAnalytics.passengerAverage || "4.8"}
+                <span className="text-xs text-slate-400 font-semibold">/ 5</span>
+              </div>
+              <p className="text-xs text-slate-500 font-semibold">Rider conduct rating</p>
+              <p className="text-[10px] text-indigo-600 font-bold uppercase pt-1">
+                Respectful village riders
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-3 hover:shadow-md transition">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Panchayat Satisfaction</span>
+              <span className="p-1.5 bg-rose-50 text-rose-500 rounded-lg text-xs">❤️</span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-3xl font-black text-slate-900 flex items-baseline gap-1">
+                {positivePercentage}%
+              </div>
+              <p className="text-xs text-slate-500 font-semibold">Positive feedback (4-5★)</p>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-1.5">
+                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${positivePercentage}%` }}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recharts Analytics Graphs */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Trend chart */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm lg:col-span-2 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Community Rating Trend</h4>
+                <p className="text-[10px] text-slate-400 font-bold">7-Day Moving Average & Count</p>
+              </div>
+              <TrendingUp className="w-4 h-4 text-slate-400" />
+            </div>
+            
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={globalAnalytics.ratingTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorRating" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" stroke="#94a3b8" fontSize={9} fontWeight="bold" tickLine={false} />
+                  <YAxis domain={[3.5, 5]} stroke="#94a3b8" fontSize={9} fontWeight="bold" tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#0f172a", borderRadius: "16px", border: "none" }}
+                    labelStyle={{ color: "#94a3b8", fontWeight: "bold", fontSize: "10px" }}
+                    itemStyle={{ color: "#ffffff", fontWeight: "black", fontSize: "11px" }}
+                  />
+                  <Area type="monotone" dataKey="averageRating" stroke="#f59e0b" strokeWidth={3} fillOpacity={1} fill="url(#colorRating)" name="Avg Rating" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Rating distribution matrix */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Rating Distribution Matrix</h4>
+                <p className="text-[10px] text-slate-400 font-bold">Feedback Density Map</p>
+              </div>
+              <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+            </div>
+
+            <div className="space-y-4 pt-2">
+              {[5, 4, 3, 2, 1].map((starsKey) => {
+                const count = globalAnalytics.ratingDistribution?.[starsKey as 1 | 2 | 3 | 4 | 5] || 0;
+                const percentage = globalAnalytics.totalReviews > 0 
+                  ? (count / globalAnalytics.totalReviews) * 100 
+                  : 0;
+
+                return (
+                  <div key={starsKey} className="flex items-center gap-3 text-xs font-bold text-slate-600">
+                    <span className="w-3 text-slate-500">{starsKey}</span>
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    <div className="flex-grow bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-amber-400 h-full rounded-full transition-all duration-500"
+                        style={{ width: `${percentage}%` }}
+                      ></div>
+                    </div>
+                    <span className="w-12 text-right text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
+                      {count} ({Math.round(percentage)}%)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Vehicle Type Performance Chart */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div>
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Emergency Vehicle Metrics</h4>
+              <p className="text-[10px] text-slate-400 font-bold">Average rating by vehicle category</p>
+            </div>
+            
+            <div className="h-60 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={globalAnalytics.vehiclePerformance} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="vehicleType" stroke="#94a3b8" fontSize={8} fontWeight="bold" tickLine={false} />
+                  <YAxis domain={[0, 5]} stroke="#94a3b8" fontSize={9} fontWeight="bold" tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#0f172a", borderRadius: "16px", border: "none" }}
+                    labelStyle={{ color: "#94a3b8", fontWeight: "bold", fontSize: "10px" }}
+                    itemStyle={{ color: "#ffffff", fontWeight: "black", fontSize: "11px" }}
+                  />
+                  <Bar dataKey="averageRating" radius={[8, 8, 0, 0]} name="Avg Rating">
+                    {globalAnalytics.vehiclePerformance?.map((entry: any, index: number) => {
+                      const colors = ["#10b981", "#3b82f6", "#ef4444", "#8b5cf6", "#f59e0b"];
+                      return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Village Comparison Chart */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div>
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Village Transit Compliance</h4>
+              <p className="text-[10px] text-slate-400 font-bold">Top performing villages in Ghazipur district</p>
+            </div>
+            
+            <div className="h-60 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={globalAnalytics.villagePerformance} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="village" stroke="#94a3b8" fontSize={8} fontWeight="bold" tickLine={false} />
+                  <YAxis domain={[0, 5]} stroke="#94a3b8" fontSize={9} fontWeight="bold" tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#0f172a", borderRadius: "16px", border: "none" }}
+                    labelStyle={{ color: "#94a3b8", fontWeight: "bold", fontSize: "10px" }}
+                    itemStyle={{ color: "#ffffff", fontWeight: "black", fontSize: "11px" }}
+                  />
+                  <Bar dataKey="averageRating" fill="#4f46e5" radius={[8, 8, 0, 0]} name="Avg Rating" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {/* Top/Low Performers Lists */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Top Drivers */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-50">
+              <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                <Award className="w-4 h-4 text-emerald-500" />
+              </span>
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Outstanding Drivers</h4>
+                <p className="text-[10px] text-slate-400 font-bold">Highest Community Ratings</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {(!globalAnalytics.topDrivers || globalAnalytics.topDrivers.length === 0) ? (
+                <p className="text-xs text-slate-400 text-center py-6">No drivers indexed yet.</p>
+              ) : (
+                globalAnalytics.topDrivers.map((driver: any) => (
+                  <div key={driver.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-slate-100/50 transition">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-extrabold text-slate-900">{driver.name}</div>
+                      <div className="text-[9px] text-slate-400 font-bold flex items-center gap-1">
+                        <MapPin className="w-2.5 h-2.5" />
+                        {driver.village} • {driver.vehicleType}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 text-xs font-black text-amber-500">
+                        <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                        {driver.rating}
+                      </div>
+                      <div className="text-[8px] text-slate-400 font-bold uppercase">
+                        {driver.completedTrips} Trips
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Top Passengers */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-50">
+              <span className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                <Sparkles className="w-4 h-4 text-indigo-500" />
+              </span>
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Outstanding Passengers</h4>
+                <p className="text-[10px] text-slate-400 font-bold">Exemplary Conduct & Safety</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {(!globalAnalytics.topPassengers || globalAnalytics.topPassengers.length === 0) ? (
+                <p className="text-xs text-slate-400 text-center py-6">No passengers indexed yet.</p>
+              ) : (
+                globalAnalytics.topPassengers.map((passenger: any) => (
+                  <div key={passenger.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl hover:bg-slate-100/50 transition">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-extrabold text-slate-900">{passenger.name}</div>
+                      <div className="text-[9px] text-slate-400 font-bold flex items-center gap-1">
+                        <MapPin className="w-2.5 h-2.5" />
+                        {passenger.village}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 text-xs font-black text-amber-500">
+                        <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                        {passenger.rating}
+                      </div>
+                      <div className="text-[8px] text-slate-400 font-bold uppercase">
+                        {passenger.reviewsCount} Reviews
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Low Rated Drivers */}
+          <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-50">
+              <span className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
+                <AlertTriangle className="w-4 h-4 text-rose-500" />
+              </span>
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Drivers Needing Attention</h4>
+                <p className="text-[10px] text-slate-400 font-bold font-black">Governance Action Warnings</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {(!globalAnalytics.lowRatedDrivers || globalAnalytics.lowRatedDrivers.length === 0) ? (
+                <p className="text-xs text-slate-400 text-center py-6">All drivers performing excellently.</p>
+              ) : (
+                globalAnalytics.lowRatedDrivers.map((driver: any) => {
+                  const isCritical = driver.rating < 4.5;
+                  return (
+                    <div key={driver.id} className={`flex items-center justify-between p-3 rounded-2xl border transition ${
+                      isCritical ? "bg-rose-50/40 border-rose-100 hover:bg-rose-50/70" : "bg-slate-50 border-slate-50 hover:bg-slate-100/50"
+                    }`}>
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                          {driver.name}
+                          {isCritical && (
+                            <span className="px-1.5 py-0.2 bg-rose-100 text-rose-700 text-[8px] uppercase font-black rounded-lg">
+                              Caution
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-slate-400 font-bold flex items-center gap-1">
+                          <MapPin className="w-2.5 h-2.5" />
+                          {driver.village} • {driver.vehicleType}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`flex items-center gap-1 text-xs font-black ${isCritical ? "text-rose-600" : "text-amber-500"}`}>
+                          <Star className={`w-3.5 h-3.5 ${isCritical ? "text-rose-500 fill-rose-500" : "fill-amber-500 text-amber-500"}`} />
+                          {driver.rating}
+                        </div>
+                        <div className="text-[8px] text-slate-400 font-bold uppercase">
+                          {driver.completedTrips} Trips
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -541,6 +1046,9 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                               <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[8px] font-bold rounded uppercase">
                                 {rev.reviewerRole}
                               </span>
+                              {rev.edited && (
+                                <span className="text-[9px] text-slate-400 font-bold italic">(Edited)</span>
+                              )}
                             </div>
                             <p className="text-[10px] text-slate-400 font-semibold">{new Date(rev.createdAt).toLocaleDateString()}</p>
                           </div>
@@ -555,6 +1063,86 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                         <p className="text-xs text-slate-600 bg-slate-50/50 p-3 rounded-2xl border border-slate-50 font-medium italic">
                           "{rev.comment}"
                         </p>
+                      )}
+
+                      {/* Display replies if exists */}
+                      {rev.reply && (
+                        <div className="ml-6 bg-slate-50 border border-slate-100 rounded-2xl p-3.5 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                              💬 Reply from {rev.reply.userName}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-bold">
+                              {new Date(rev.reply.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 font-medium italic">
+                            "{rev.reply.text}"
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Like, Report, Reply footer buttons */}
+                      <div className="pt-2 border-t border-slate-50 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          {/* Like button */}
+                          <button
+                            onClick={() => handleLikeReview(rev.id)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                              rev.likes?.includes(user?.id)
+                                ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                : "bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                            }`}
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                            <span>{rev.likes?.length || 0}</span>
+                          </button>
+
+                          {/* Reply button */}
+                          {!rev.reply && (
+                            <button
+                              onClick={() => setReplyingReviewId(replyingReviewId === rev.id ? null : rev.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>{replyingReviewId === rev.id ? "Cancel Reply" : "Reply"}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Report button */}
+                        <button
+                          onClick={() => handleReportReview(rev.id)}
+                          className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-bold transition cursor-pointer ${
+                            rev.reportedBy?.includes(user?.id)
+                              ? "bg-rose-50 text-rose-600 border border-rose-100"
+                              : "text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                          }`}
+                        >
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>{rev.reportedBy?.includes(user?.id) ? "Reported" : "Report"}</span>
+                        </button>
+                      </div>
+
+                      {/* Inline Reply Textarea */}
+                      {replyingReviewId === rev.id && (
+                        <div className="ml-6 space-y-2 pt-2 border-t border-slate-50">
+                          <textarea
+                            rows={2}
+                            placeholder="Type your professional response..."
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold outline-none focus:ring-2 focus:ring-slate-900/10 placeholder:text-slate-400 resize-none"
+                          ></textarea>
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => handleReplySubmit(rev.id)}
+                              className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[10px] rounded-xl transition cursor-pointer"
+                            >
+                              Send Reply
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -597,6 +1185,9 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                               <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[8px] font-bold rounded uppercase">
                                 {rev.revieweeRole}
                               </span>
+                              {rev.edited && (
+                                <span className="text-[9px] text-slate-400 font-bold italic">(Edited)</span>
+                              )}
                             </div>
                             <p className="text-[10px] text-slate-400 font-semibold">{new Date(rev.createdAt).toLocaleDateString()}</p>
                           </div>
@@ -612,6 +1203,49 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                           "{rev.comment}"
                         </p>
                       )}
+
+                      {/* Display reply from driver/passenger if exists */}
+                      {rev.reply && (
+                        <div className="ml-6 bg-slate-50 border border-slate-100 rounded-2xl p-3.5 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                              💬 Reply from {rev.reply.userName}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-bold">
+                              {new Date(rev.reply.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 font-medium italic">
+                            "{rev.reply.text}"
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Edit, Delete footer buttons */}
+                      <div className="pt-2 border-t border-slate-50 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleOpenEdit(rev)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteReview(rev.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        </div>
+
+                        {/* Likes indicators */}
+                        {rev.likes && rev.likes.length > 0 && (
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400 font-bold">
+                            <ThumbsUp className="w-3 h-3 text-slate-300" />
+                            <span>{rev.likes.length} Likes</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -622,109 +1256,113 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
           {/* 4. STATS TAB */}
           {activeTab === "stats" && (
             <div className="space-y-6">
-              {/* Distribution Grid */}
-              {stats ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Big metrics */}
-                  <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between space-y-4">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Aggregate Trust Score</span>
-                    <div className="py-4 text-center">
-                      <div className="text-5xl font-black text-slate-900 flex items-baseline justify-center gap-1">
-                        {stats.averageRating || "4.7"}
-                        <span className="text-xs text-slate-400 font-semibold">out of 5 stars</span>
-                      </div>
-                      <div className="flex justify-center mt-2 scale-110">
-                        {renderStars(stats.averageRating || 4.7)}
-                      </div>
-                      <p className="text-[11px] text-emerald-600 font-bold mt-4 bg-emerald-50 px-3 py-1 rounded-full inline-block">
-                        Excellent Performance Metric
-                      </p>
-                    </div>
-                    <div className="border-t border-slate-50 pt-4 flex items-center justify-between text-xs text-slate-500 font-bold">
-                      <span>Total Qualitative Reviews</span>
-                      <span className="text-slate-900 text-sm">{stats.totalReviews || "0"}</span>
-                    </div>
-                  </div>
-
-                  {/* Rating Distribution Bars */}
-                  <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm md:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Rating Distribution Matrix</h4>
-                      <TrendingUp className="w-4 h-4 text-slate-400" />
-                    </div>
-
-                    <div className="space-y-3 pt-2">
-                      {[5, 4, 3, 2, 1].map((starsKey) => {
-                        const count = stats.ratingDistribution[starsKey as 1 | 2 | 3 | 4 | 5] || 0;
-                        const percentage = stats.totalReviews > 0 
-                          ? (count / stats.totalReviews) * 100 
-                          : 0;
-
-                        return (
-                          <div key={starsKey} className="flex items-center gap-3 text-xs font-bold text-slate-600">
-                            <span className="w-3 text-slate-500">{starsKey}</span>
-                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                            <div className="flex-grow bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                              <div 
-                                className="bg-amber-400 h-full rounded-full transition-all duration-500"
-                                style={{ width: `${percentage}%` }}
-                              ></div>
-                            </div>
-                            <span className="w-12 text-right text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
-                              {count} ({Math.round(percentage)}%)
-                            </span>
+              {role === "admin" ? renderGlobalAnalytics() : (
+                <>
+                  {/* Distribution Grid */}
+                  {stats ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Big metrics */}
+                      <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex flex-col justify-between space-y-4">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Aggregate Trust Score</span>
+                        <div className="py-4 text-center">
+                          <div className="text-5xl font-black text-slate-900 flex items-baseline justify-center gap-1">
+                            {stats.averageRating || "4.7"}
+                            <span className="text-xs text-slate-400 font-semibold">out of 5 stars</span>
                           </div>
-                        );
-                      })}
+                          <div className="flex justify-center mt-2 scale-110">
+                            {renderStars(stats.averageRating || 4.7)}
+                          </div>
+                          <p className="text-[11px] text-emerald-600 font-bold mt-4 bg-emerald-50 px-3 py-1 rounded-full inline-block">
+                            Excellent Performance Metric
+                          </p>
+                        </div>
+                        <div className="border-t border-slate-50 pt-4 flex items-center justify-between text-xs text-slate-500 font-bold">
+                          <span>Total Qualitative Reviews</span>
+                          <span className="text-slate-900 text-sm">{stats.totalReviews || "0"}</span>
+                        </div>
+                      </div>
+
+                      {/* Rating Distribution Bars */}
+                      <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm md:col-span-2 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Rating Distribution Matrix</h4>
+                          <TrendingUp className="w-4 h-4 text-slate-400" />
+                        </div>
+
+                        <div className="space-y-3 pt-2">
+                          {[5, 4, 3, 2, 1].map((starsKey) => {
+                            const count = stats.ratingDistribution[starsKey as 1 | 2 | 3 | 4 | 5] || 0;
+                            const percentage = stats.totalReviews > 0 
+                              ? (count / stats.totalReviews) * 100 
+                              : 0;
+
+                            return (
+                              <div key={starsKey} className="flex items-center gap-3 text-xs font-bold text-slate-600">
+                                <span className="w-3 text-slate-500">{starsKey}</span>
+                                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                                <div className="flex-grow bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                                  <div 
+                                    className="bg-amber-400 h-full rounded-full transition-all duration-500"
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                                <span className="w-12 text-right text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
+                                  {count} ({Math.round(percentage)}%)
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-12 text-center bg-white border border-slate-100 rounded-3xl space-y-2 shadow-sm">
+                      <p className="text-xs text-slate-400 font-bold">No stats matrices compiled.</p>
+                    </div>
+                  )}
+
+                  {/* Qualities / Badges list */}
+                  <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-emerald-500" />
+                      Panchayat Service Badges & Badges Earned
+                    </h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pt-2">
+                      <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
+                        <div className="w-9 h-9 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mx-auto text-sm">
+                          🛡️
+                        </div>
+                        <div className="text-xs font-black text-slate-800 pt-1">Safe Lifeline</div>
+                        <div className="text-[10px] text-slate-400 font-medium">95%+ Safe driving reviews</div>
+                      </div>
+
+                      <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
+                        <div className="w-9 h-9 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mx-auto text-sm">
+                          ⏱️
+                        </div>
+                        <div className="text-xs font-black text-slate-800 pt-1">Punctual Savior</div>
+                        <div className="text-[10px] text-slate-400 font-medium">Under 5-min pickup response</div>
+                      </div>
+
+                      <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
+                        <div className="w-9 h-9 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mx-auto text-sm">
+                          🤝
+                        </div>
+                        <div className="text-xs font-black text-slate-800 pt-1">Panchayat Trust</div>
+                        <div className="text-[10px] text-slate-400 font-medium">Verified village volunteer</div>
+                      </div>
+
+                      <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
+                        <div className="w-9 h-9 bg-pink-100 text-pink-600 rounded-xl flex items-center justify-center mx-auto text-sm">
+                          ⭐
+                        </div>
+                        <div className="text-xs font-black text-slate-800 pt-1">Superstar</div>
+                        <div className="text-[10px] text-slate-400 font-medium">Maintained 4.8+ rating</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-12 text-center bg-white border border-slate-100 rounded-3xl space-y-2 shadow-sm">
-                  <p className="text-xs text-slate-400 font-bold">No stats matrices compiled.</p>
-                </div>
+                </>
               )}
-
-              {/* Qualities / Badges list */}
-              <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
-                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-emerald-500" />
-                  Panchayat Service Badges & Badges Earned
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pt-2">
-                  <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
-                    <div className="w-9 h-9 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mx-auto text-sm">
-                      🛡️
-                    </div>
-                    <div className="text-xs font-black text-slate-800 pt-1">Safe Lifeline</div>
-                    <div className="text-[10px] text-slate-400 font-medium">95%+ Safe driving reviews</div>
-                  </div>
-
-                  <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
-                    <div className="w-9 h-9 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center mx-auto text-sm">
-                      ⏱️
-                    </div>
-                    <div className="text-xs font-black text-slate-800 pt-1">Punctual Savior</div>
-                    <div className="text-[10px] text-slate-400 font-medium">Under 5-min pickup response</div>
-                  </div>
-
-                  <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
-                    <div className="w-9 h-9 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mx-auto text-sm">
-                      🤝
-                    </div>
-                    <div className="text-xs font-black text-slate-800 pt-1">Panchayat Trust</div>
-                    <div className="text-[10px] text-slate-400 font-medium">Verified village volunteer</div>
-                  </div>
-
-                  <div className="bg-slate-50 hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-100 transition text-center space-y-1">
-                    <div className="w-9 h-9 bg-pink-100 text-pink-600 rounded-xl flex items-center justify-center mx-auto text-sm">
-                      ⭐
-                    </div>
-                    <div className="text-xs font-black text-slate-800 pt-1">Superstar</div>
-                    <div className="text-[10px] text-slate-400 font-medium">Maintained 4.8+ rating</div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -788,7 +1426,9 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
               ) : (
                 <div className="space-y-4">
                   {filteredAdminReviews.map((rev) => (
-                    <div key={rev.id} className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-3 hover:shadow-md transition">
+                    <div key={rev.id} className={`bg-white border rounded-3xl p-5 shadow-sm space-y-3 hover:shadow-md transition ${
+                      rev.reported ? "border-rose-200 bg-rose-50/10" : "border-slate-100"
+                    }`}>
                       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                         <div className="flex items-start gap-3">
                           <div className="w-10 h-10 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-700 font-black">
@@ -806,6 +1446,14 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                               }`}>
                                 {rev.revieweeRole}
                               </span>
+                              {rev.edited && (
+                                <span className="text-[9px] text-slate-400 font-bold italic">(Edited)</span>
+                              )}
+                              {rev.reported && (
+                                <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[8px] font-black rounded uppercase">
+                                  ⚠️ Reported ({rev.reportsCount || 1})
+                                </span>
+                              )}
                             </div>
                             <p className="text-[10px] text-slate-400 font-semibold">{new Date(rev.createdAt).toLocaleString()}</p>
                           </div>
@@ -815,13 +1463,22 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                             {renderStars(rev.rating)}
                             <span className="text-[10px] font-black text-slate-400">Ride ID: {rev.rideId}</span>
                           </div>
-                          <button
-                            onClick={() => handleDeleteReview(rev.id)}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                            title="Delete in violation of standards"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleOpenEdit(rev)}
+                              className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition cursor-pointer"
+                              title="Moderate/Edit Comment"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteReview(rev.id)}
+                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                              title="Delete in violation of standards"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -829,6 +1486,77 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                         <p className="text-xs text-slate-600 bg-slate-50/50 p-3 rounded-2xl border border-slate-50 font-medium italic">
                           "{rev.comment}"
                         </p>
+                      )}
+
+                      {/* Display reply from driver/passenger/admin if exists */}
+                      {rev.reply && (
+                        <div className="ml-6 bg-slate-50 border border-slate-100 rounded-2xl p-3.5 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                              💬 Reply from {rev.reply.userName}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-bold">
+                              {new Date(rev.reply.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 font-medium italic">
+                            "{rev.reply.text}"
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Admin Reply & Likes Controls */}
+                      <div className="pt-2 border-t border-slate-50 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleLikeReview(rev.id)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                              rev.likes?.includes(user?.id)
+                                ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                : "bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                            }`}
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                            <span>{rev.likes?.length || 0} Likes</span>
+                          </button>
+
+                          {!rev.reply && (
+                            <button
+                              onClick={() => setReplyingReviewId(replyingReviewId === rev.id ? null : rev.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>{replyingReviewId === rev.id ? "Cancel Reply" : "Official Reply"}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {rev.reported && (
+                          <span className="text-[10px] text-rose-600 font-bold bg-rose-50 px-2.5 py-1 rounded-xl">
+                            Flagged for Governance Action
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Inline Admin Reply Textarea */}
+                      {replyingReviewId === rev.id && (
+                        <div className="ml-6 space-y-2 pt-2 border-t border-slate-50">
+                          <textarea
+                            rows={2}
+                            placeholder="Type official Panchayat or Administrator response..."
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold outline-none focus:ring-2 focus:ring-slate-900/10 placeholder:text-slate-400 resize-none"
+                          ></textarea>
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => handleReplySubmit(rev.id)}
+                              className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[10px] rounded-xl transition cursor-pointer"
+                            >
+                              Send Reply
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -970,6 +1698,98 @@ export default function RatingSystem({ role, token, user }: RatingSystemProps) {
                   className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-black py-4 rounded-2xl text-xs transition mt-6 cursor-pointer"
                 >
                   {submitting ? "Uploading feedback..." : "Submit Qualities Review"}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* EDIT REVIEW MODAL */}
+      <AnimatePresence>
+        {editModalOpen && editingReview && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 border border-slate-100 shadow-2xl relative"
+            >
+              <button
+                onClick={() => setEditModalOpen(false)}
+                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                ✕
+              </button>
+
+              <div className="flex items-center gap-2 mb-6">
+                <span className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <Edit className="w-5 h-5 text-indigo-500" />
+                </span>
+                <h3 className="text-lg font-black text-slate-900">
+                  Moderate / Edit Review
+                </h3>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs font-bold space-y-2 mb-6">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Reviewee</span>
+                  <span className="text-slate-800">{editingReview.revieweeName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Reviewee Role</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[9px] uppercase border font-black ${
+                    editingReview.revieweeRole === "driver" 
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-100" 
+                      : "bg-blue-50 text-blue-700 border-blue-100"
+                  }`}>
+                    {editingReview.revieweeRole}
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleEditSubmit} className="space-y-5">
+                {/* Star selection */}
+                <div className="space-y-2 text-center">
+                  <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Star Rating *</label>
+                  <div className="flex justify-center items-center gap-2">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setEditRating(i + 1)}
+                        className="p-1 cursor-pointer transform hover:scale-125 transition-transform"
+                      >
+                        <Star 
+                          className={`w-10 h-10 transition-colors ${
+                            (i < editRating)
+                              ? "text-amber-400 fill-amber-400 animate-pulse"
+                              : "text-slate-200"
+                          }`} 
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom comment input */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Qualitative Feedback Comment</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Provide details about your safety, speed, politeness or any constructive feedback..."
+                    value={editComment}
+                    onChange={(e) => setEditComment(e.target.value)}
+                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold outline-none focus:ring-2 focus:ring-slate-900/10 placeholder:text-slate-400 resize-none"
+                  ></textarea>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-black py-4 rounded-2xl text-xs transition mt-6 cursor-pointer"
+                >
+                  {submitting ? "Updating feedback..." : "Save Changes"}
                 </button>
               </form>
             </motion.div>

@@ -28,7 +28,8 @@ import {
   Search,
   Coins,
   Gift,
-  Star
+  Star,
+  MessageSquare
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { EmergencyRide, RideCancellationLog } from "../types";
@@ -38,6 +39,7 @@ import MapComponent from "./MapComponent";
 import WalletDashboard from "./WalletDashboard";
 import ReferralDashboard from "./ReferralDashboard";
 import RatingSystem from "./RatingSystem";
+import ChatModule from "./ChatModule";
 
 interface RequestCardProps {
   key?: any;
@@ -168,7 +170,9 @@ export default function DriverHub() {
   const { user, token, logout, refreshUser } = useAuth();
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<"dashboard" | "documents" | "history" | "earnings" | "profile" | "cancellations" | "wallet" | "referral" | "ratings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "documents" | "history" | "earnings" | "profile" | "cancellations" | "wallet" | "referral" | "ratings" | "chat">("dashboard");
+  const [chatRecipientId, setChatRecipientId] = useState<string | undefined>(undefined);
+  const [chatRideId, setChatRideId] = useState<string | undefined>(undefined);
   
   // Core Driver Data States
   const [stats, setStats] = useState<DriverStats | null>(null);
@@ -258,13 +262,20 @@ export default function DriverHub() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setStats(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setStats(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse driver stats JSON:", parseErr);
+          }
+        }
       } else {
-        console.error("Failed to load driver stats");
+        console.debug("Failed to load driver stats, status:", res.status);
       }
     } catch (err) {
-      console.error(err);
+      console.debug("Error fetching driver stats:", err);
     } finally {
       setIsLoading(false);
     }
@@ -276,11 +287,18 @@ export default function DriverHub() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setIncomingRequests(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setIncomingRequests(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse incoming requests JSON:", parseErr);
+          }
+        }
       }
     } catch (err) {
-      console.error(err);
+      console.debug("Error fetching incoming requests:", err);
     }
   };
 
@@ -290,11 +308,18 @@ export default function DriverHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setCancellationLogs(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setCancellationLogs(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse cancellation logs JSON:", parseErr);
+          }
+        }
       }
     } catch (e) {
-      console.error("Error fetching cancellations history:", e);
+      console.debug("Error fetching cancellations history:", e);
     }
   };
 
@@ -662,14 +687,21 @@ export default function DriverHub() {
             { id: "earnings", label: "Subsidy & Earnings", icon: DollarSign },
             { id: "wallet", label: "My Subsidy Wallet", icon: Coins },
             { id: "referral", label: "Refer & Earn", icon: Gift },
-            { id: "profile", label: "Vehicle & Profile", icon: User }
+            { id: "profile", label: "Vehicle & Profile", icon: User },
+            { id: "chat", label: "Community Chat Hub", icon: MessageSquare }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => {
+                  if (tab.id === "chat") {
+                    setChatRecipientId(undefined);
+                    setChatRideId(undefined);
+                  }
+                  setActiveTab(tab.id as any);
+                }}
                 className={`w-full flex items-center justify-between p-4 rounded-2xl text-xs font-extrabold transition-all border text-left cursor-pointer ${
                   isActive
                     ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-100"
@@ -729,7 +761,7 @@ export default function DriverHub() {
                       </p>
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-wrap gap-2">
                       <a 
                         href={`tel:${stats.activeRide.patientPhone}`}
                         className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold text-xs rounded-xl flex items-center space-x-1.5 transition-colors"
@@ -737,6 +769,22 @@ export default function DriverHub() {
                         <Phone className="w-3.5 h-3.5" />
                         <span>Call Family ({stats.activeRide.patientPhone})</span>
                       </a>
+
+                      {stats.activeRide.passengerId && (
+                        <button 
+                          onClick={() => {
+                            if (stats.activeRide) {
+                              setChatRecipientId(stats.activeRide.passengerId);
+                              setChatRideId(stats.activeRide.id);
+                              setActiveTab("chat");
+                            }
+                          }}
+                          className="px-4 py-2.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold text-xs rounded-xl flex items-center space-x-1.5 transition-colors cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-orange-600" />
+                          <span>Chat with Passenger</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1397,6 +1445,14 @@ export default function DriverHub() {
           {/* Tab: Ratings & Feedback */}
           {activeTab === "ratings" && (
             <RatingSystem role="driver" token={token} user={user} />
+          )}
+
+          {/* Tab: Chat */}
+          {activeTab === "chat" && (
+            <ChatModule
+              initialRecipientId={chatRecipientId}
+              initialRideId={chatRideId}
+            />
           )}
 
           {/* Tab: Profile */}

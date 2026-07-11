@@ -1,12 +1,34 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Truck, PhoneCall, Shield, Activity, Menu, X, LogIn, LogOut, UserPlus } from "lucide-react";
+import { Truck, PhoneCall, Shield, Activity, Menu, X, LogIn, LogOut, UserPlus, Bell } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
   const location = useLocation();
   const [isOpen, setIsOpen] = React.useState(false);
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, token } = useAuth();
+  const [unreadCount, setUnreadCount] = React.useState(0);
+
+  const fetchUnreadCount = async () => {
+    if (!isAuthenticated || !token) return;
+    try {
+      const res = await fetch("/api/notifications/unread-count", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.unreadCount);
+      }
+    } catch (e) {
+      // quiet fail
+    }
+  };
+
+  React.useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 10000); // 10s poll for fast reactive simulation
+    return () => clearInterval(interval);
+  }, [isAuthenticated, token]);
 
   const navItems = [
     { name: "Home", path: "/" },
@@ -62,6 +84,20 @@ export default function Navbar() {
             
             {/* Authentication States */}
             <div className="flex items-center space-x-2 pl-4 border-l border-gray-100">
+              {isAuthenticated && (
+                <Link
+                  to="/notifications"
+                  className="relative p-2 text-slate-500 hover:text-orange-600 hover:bg-orange-50/50 rounded-xl transition-all cursor-pointer mr-2"
+                  title="Push Notifications Center"
+                >
+                  <Bell className="w-4.5 h-4.5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-orange-600 text-white rounded-full flex items-center justify-center text-[8px] font-black animate-pulse">
+                      {unreadCount}
+                    </span>
+                  )}
+                </Link>
+              )}
               {isAuthenticated && user ? (
                 <div className="flex items-center space-x-3">
                   <div className="flex flex-col text-right">
@@ -153,6 +189,28 @@ export default function Navbar() {
                 </Link>
               );
             })}
+            
+            {isAuthenticated && (
+              <Link
+                to="/notifications"
+                onClick={() => setIsOpen(false)}
+                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-base font-bold transition-all ${
+                  location.pathname === "/notifications"
+                    ? "text-orange-600 bg-orange-50"
+                    : "text-gray-600 hover:text-orange-600 hover:bg-orange-50/50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-orange-600 animate-bounce" />
+                  <span>FCM Push Notifications Center</span>
+                </div>
+                {unreadCount > 0 && (
+                  <span className="bg-orange-600 text-white rounded-full px-2.5 py-0.5 text-[10px] font-black animate-pulse">
+                    {unreadCount} unread
+                  </span>
+                )}
+              </Link>
+            )}
             
             {/* Mobile Auth Status */}
             <div className="pt-3 pb-3 border-t border-b border-gray-100 px-3 my-2">

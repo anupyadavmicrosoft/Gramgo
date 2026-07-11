@@ -224,4 +224,341 @@ export const ReviewController = {
       res.status(500).json({ error: "Failed to calculate user rating statistics." });
     }
   },
+
+  // Edit a review
+  async editReview(req: any, res: any) {
+    const { id } = req.params;
+    const { rating, comment } = req.body;
+    const userId = req.user.id;
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: "A rating between 1 and 5 is required." });
+    }
+
+    try {
+      const review = await ReviewDb.findOne({ id });
+      if (!review) {
+        return res.status(404).json({ error: "Review not found." });
+      }
+
+      if (review.reviewerId !== userId && req.user.role !== "admin") {
+        return res.status(403).json({ error: "Unauthorized to edit this review." });
+      }
+
+      const updated = await ReviewDb.update(id, {
+        rating: Number(rating),
+        comment: comment || "",
+        edited: true,
+      });
+
+      if (updated) {
+        // Recalculate average rating for reviewee
+        const revieweeReviews = await ReviewDb.findByReviewee(review.revieweeId);
+        if (revieweeReviews.length > 0) {
+          const totalStars = revieweeReviews.reduce((sum, rev) => sum + rev.rating, 0);
+          const avgRating = Number((totalStars / revieweeReviews.length).toFixed(1));
+          await UserDb.updateProfile(review.revieweeId, { rating: avgRating });
+        }
+        return res.json({ success: true, message: "Review updated successfully.", review: updated });
+      }
+
+      res.status(400).json({ error: "Failed to update review." });
+    } catch (error) {
+      console.error("Failed to edit review:", error);
+      res.status(500).json({ error: "Failed to edit review." });
+    }
+  },
+
+  // Report a review
+  async reportReview(req: any, res: any) {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+      const review = await ReviewDb.findOne({ id });
+      if (!review) {
+        return res.status(404).json({ error: "Review not found." });
+      }
+
+      const reportedBy = review.reportedBy || [];
+      if (reportedBy.includes(userId)) {
+        return res.status(400).json({ error: "You have already reported this review." });
+      }
+
+      const updatedReportedBy = [...reportedBy, userId];
+      const reportsCount = (review.reportsCount || 0) + 1;
+
+      const updated = await ReviewDb.update(id, {
+        reported: true,
+        reportsCount,
+        reportedBy: updatedReportedBy,
+      });
+
+      if (updated) {
+        return res.json({ success: true, message: "Review reported successfully.", review: updated });
+      }
+      res.status(400).json({ error: "Failed to report review." });
+    } catch (error) {
+      console.error("Failed to report review:", error);
+      res.status(500).json({ error: "Failed to report review." });
+    }
+  },
+
+  // Like or unlike a review
+  async likeReview(req: any, res: any) {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+      const review = await ReviewDb.findOne({ id });
+      if (!review) {
+        return res.status(404).json({ error: "Review not found." });
+      }
+
+      const likes = review.likes || [];
+      let updatedLikes: string[] = [];
+      let isLiked = false;
+
+      if (likes.includes(userId)) {
+        updatedLikes = likes.filter((l) => l !== userId);
+        isLiked = false;
+      } else {
+        updatedLikes = [...likes, userId];
+        isLiked = true;
+      }
+
+      const updated = await ReviewDb.update(id, {
+        likes: updatedLikes,
+      });
+
+      if (updated) {
+        return res.json({
+          success: true,
+          message: isLiked ? "Review liked." : "Review unliked.",
+          liked: isLiked,
+          review: updated,
+        });
+      }
+      res.status(400).json({ error: "Failed to like review." });
+    } catch (error) {
+      console.error("Failed to like review:", error);
+      res.status(500).json({ error: "Failed to like review." });
+    }
+  },
+
+  // Reply to a review
+  async replyToReview(req: any, res: any) {
+    const { id } = req.params;
+    const { text } = req.body;
+    const userId = req.user.id;
+    const userName = req.user.name || "User";
+
+    if (!text || text.trim() === "") {
+      return res.status(400).json({ error: "Reply text is required." });
+    }
+
+    try {
+      const review = await ReviewDb.findOne({ id });
+      if (!review) {
+        return res.status(404).json({ error: "Review not found." });
+      }
+
+      // Check if user is reviewee, reviewer, or admin
+      if (review.revieweeId !== userId && req.user.role !== "admin" && review.reviewerId !== userId) {
+        return res.status(403).json({ error: "Unauthorized to reply to this review." });
+      }
+
+      const reply = {
+        text: text.trim(),
+        userId,
+        userName,
+        createdAt: new Date(),
+      };
+
+      const updated = await ReviewDb.update(id, { reply });
+      if (updated) {
+        return res.json({ success: true, message: "Reply added successfully.", review: updated });
+      }
+      res.status(400).json({ error: "Failed to add reply." });
+    } catch (error) {
+      console.error("Failed to add reply:", error);
+      res.status(500).json({ error: "Failed to add reply." });
+    }
+  },
+
+  // Get global rating analytics
+  async getRatingAnalytics(req: any, res: any) {
+    try {
+      const allReviews = await ReviewDb.findAll();
+      const allUsers = await UserDb.find({});
+
+      const totalReviews = allReviews.length;
+      
+      // Calculate overall average
+      const overallAvg = totalReviews > 0
+        ? Number((allReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews).toFixed(2))
+        : 4.7;
+
+      // Group reviews by reviewee role
+      const driverReviews = allReviews.filter(r => r.revieweeRole === "driver");
+      const passengerReviews = allReviews.filter(r => r.revieweeRole === "passenger");
+
+      const driverAvg = driverReviews.length > 0
+        ? Number((driverReviews.reduce((sum, r) => sum + r.rating, 0) / driverReviews.length).toFixed(2))
+        : 4.7;
+
+      const passengerAvg = passengerReviews.length > 0
+        ? Number((passengerReviews.reduce((sum, r) => sum + r.rating, 0) / passengerReviews.length).toFixed(2))
+        : 4.8;
+
+      // Rating Distribution (1-5 stars)
+      const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      allReviews.forEach(r => {
+        const ratingKey = Math.round(r.rating) as 1 | 2 | 3 | 4 | 5;
+        if (ratingKey >= 1 && ratingKey <= 5) {
+          ratingDistribution[ratingKey]++;
+        }
+      });
+
+      // Map users for fast lookup
+      const userMap = new Map<string, any>();
+      allUsers.forEach(u => userMap.set(u.id, u));
+
+      // 1. Calculate active averages and counts for drivers
+      const driversData = allUsers
+        .filter(u => u.role === "driver")
+        .map(u => {
+          const reviewsReceived = driverReviews.filter(r => r.revieweeId === u.id);
+          const calculatedRating = reviewsReceived.length > 0
+            ? Number((reviewsReceived.reduce((sum, r) => sum + r.rating, 0) / reviewsReceived.length).toFixed(2))
+            : (u.rating || 4.7);
+          return {
+            id: u.id,
+            name: u.name,
+            phone: u.phone,
+            village: u.village,
+            vehicleType: u.vehicleType || "Unknown",
+            vehicleNumber: u.vehicleNumber || "",
+            rating: calculatedRating,
+            reviewsCount: reviewsReceived.length,
+            completedTrips: u.completedTrips || reviewsReceived.length,
+            status: u.status || "active"
+          };
+        });
+
+      // 2. Calculate active averages and counts for passengers
+      const passengersData = allUsers
+        .filter(u => u.role === "passenger")
+        .map(u => {
+          const reviewsReceived = passengerReviews.filter(r => r.revieweeId === u.id);
+          const calculatedRating = reviewsReceived.length > 0
+            ? Number((reviewsReceived.reduce((sum, r) => sum + r.rating, 0) / reviewsReceived.length).toFixed(2))
+            : (u.rating || 4.7);
+          return {
+            id: u.id,
+            name: u.name,
+            phone: u.phone,
+            village: u.village,
+            rating: calculatedRating,
+            reviewsCount: reviewsReceived.length,
+            status: u.status || "active"
+          };
+        });
+
+      // Top Drivers (highest rated, sorted by rating desc, then reviews count desc)
+      const topDrivers = [...driversData]
+        .sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount)
+        .slice(0, 5);
+
+      // Low Rated Drivers (lowest rated, sorted by rating asc, then reviews count asc)
+      const lowRatedDrivers = [...driversData]
+        .sort((a, b) => a.rating - b.rating || a.reviewsCount - b.reviewsCount)
+        .slice(0, 5);
+
+      // Top Passengers
+      const topPassengers = [...passengersData]
+        .sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount)
+        .slice(0, 5);
+
+      // --- Chart Data: Vehicle Type Performance ---
+      const vehicleStatsMap: { [key: string]: { sum: number; count: number } } = {};
+      driverReviews.forEach(r => {
+        const user = userMap.get(r.revieweeId);
+        const vType = user?.vehicleType || "Other";
+        if (!vehicleStatsMap[vType]) {
+          vehicleStatsMap[vType] = { sum: 0, count: 0 };
+        }
+        vehicleStatsMap[vType].sum += r.rating;
+        vehicleStatsMap[vType].count++;
+      });
+      const vehiclePerformance = Object.keys(vehicleStatsMap).map(vType => ({
+        vehicleType: vType,
+        averageRating: Number((vehicleStatsMap[vType].sum / vehicleStatsMap[vType].count).toFixed(2)),
+        reviewsCount: vehicleStatsMap[vType].count
+      }));
+
+      // --- Chart Data: Village Performance ---
+      const villageStatsMap: { [key: string]: { sum: number; count: number } } = {};
+      allReviews.forEach(r => {
+        const user = userMap.get(r.revieweeId);
+        const village = user?.village || "Other";
+        if (!villageStatsMap[village]) {
+          villageStatsMap[village] = { sum: 0, count: 0 };
+        }
+        villageStatsMap[village].sum += r.rating;
+        villageStatsMap[village].count++;
+      });
+      const villagePerformance = Object.keys(villageStatsMap).map(village => ({
+        village,
+        averageRating: Number((villageStatsMap[village].sum / villageStatsMap[village].count).toFixed(2)),
+        reviewsCount: villageStatsMap[village].count
+      })).sort((a, b) => b.reviewsCount - a.reviewsCount).slice(0, 8); // Top 8 villages by reviews
+
+      // --- Chart Data: Trends over Time (Grouped by date of creation) ---
+      // Get the last 7 days trends
+      const trendStatsMap: { [key: string]: { sum: number; count: number } } = {};
+      
+      // Seed last 7 days to make sure trend is continuous
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        trendStatsMap[dateStr] = { sum: 0, count: 0 };
+      }
+
+      allReviews.forEach(r => {
+        const dateStr = new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (trendStatsMap[dateStr] !== undefined) {
+          trendStatsMap[dateStr].sum += r.rating;
+          trendStatsMap[dateStr].count++;
+        }
+      });
+
+      const ratingTrends = Object.keys(trendStatsMap).map(dateStr => {
+        const stats = trendStatsMap[dateStr];
+        return {
+          date: dateStr,
+          averageRating: stats.count > 0 ? Number((stats.sum / stats.count).toFixed(2)) : 4.8, // fallback to full satisfaction
+          reviewsCount: stats.count
+        };
+      });
+
+      res.json({
+        totalReviews,
+        overallAverage: overallAvg,
+        driverAverage: driverAvg,
+        passengerAverage: passengerAvg,
+        ratingDistribution,
+        topDrivers,
+        lowRatedDrivers,
+        topPassengers,
+        vehiclePerformance,
+        villagePerformance,
+        ratingTrends
+      });
+    } catch (error) {
+      console.error("Failed to generate global rating analytics:", error);
+      res.status(500).json({ error: "Failed to generate global rating analytics." });
+    }
+  },
 };

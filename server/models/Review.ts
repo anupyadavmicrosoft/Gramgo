@@ -12,6 +12,17 @@ export interface IReview {
   rating: number; // 1 to 5 stars
   comment?: string;
   createdAt: Date;
+  edited?: boolean;
+  likes?: string[];
+  reported?: boolean;
+  reportsCount?: number;
+  reportedBy?: string[];
+  reply?: {
+    text: string;
+    userId: string;
+    userName: string;
+    createdAt: Date;
+  };
 }
 
 const ReviewSchema = new Schema<IReview>({
@@ -25,7 +36,18 @@ const ReviewSchema = new Schema<IReview>({
   revieweeRole: { type: String, enum: ["passenger", "driver"], required: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
   comment: { type: String, default: "" },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  edited: { type: Boolean, default: false },
+  likes: { type: [String], default: [] },
+  reported: { type: Boolean, default: false },
+  reportsCount: { type: Number, default: 0 },
+  reportedBy: { type: [String], default: [] },
+  reply: {
+    text: { type: String },
+    userId: { type: String },
+    userName: { type: String },
+    createdAt: { type: Date }
+  }
 });
 
 let MongoReviewModel: any = null;
@@ -166,6 +188,22 @@ export const ReviewDb = {
       return true;
     }
     return false;
+  },
+
+  async update(id: string, updates: Partial<IReview>): Promise<IReview | null> {
+    if (isMongoActive() && MongoReviewModel) {
+      const doc = await MongoReviewModel.findOneAndUpdate({ id }, { $set: updates }, { new: true });
+      return doc ? doc.toObject() : null;
+    }
+    const idx = memoryReviewsStore.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      memoryReviewsStore[idx] = {
+        ...memoryReviewsStore[idx],
+        ...updates
+      };
+      return { ...memoryReviewsStore[idx] };
+    }
+    return null;
   },
 
   async seedOnMongo() {

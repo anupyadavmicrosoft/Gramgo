@@ -46,14 +46,20 @@ export default function EmergencyBooking() {
   // Fetch Community Health Centres
   useEffect(() => {
     fetch("/api/chcs")
-      .then((res) => res.json())
+      .then((res) => {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json") && res.ok) {
+          return res.json();
+        }
+        return [];
+      })
       .then((data) => {
         setChcList(data);
-        if (data.length > 0) {
+        if (data && data.length > 0) {
           setDestinationChc(data[0].name);
         }
       })
-      .catch((err) => console.error("Error fetching CHCs:", err));
+      .catch((err) => console.debug("Error fetching CHCs:", err));
   }, []);
 
   // Poll active ride status
@@ -62,11 +68,19 @@ export default function EmergencyBooking() {
 
     const interval = setInterval(() => {
       fetch(`/api/ride-status/${activeRide.id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setActiveRide(data);
+        .then((res) => {
+          const contentType = res.headers.get("content-type");
+          if (res.ok && contentType && contentType.includes("application/json")) {
+            return res.json();
+          }
+          return null;
         })
-        .catch((err) => console.error("Error polling ride status:", err));
+        .then((data) => {
+          if (data) {
+            setActiveRide(data);
+          }
+        })
+        .catch((err) => console.debug("Error polling ride status:", err));
     }, 4000);
 
     return () => clearInterval(interval);
@@ -80,13 +94,19 @@ export default function EmergencyBooking() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ emergencyType: type, language: lang }),
     })
-      .then((res) => res.json())
+      .then((res) => {
+        const contentType = res.headers.get("content-type");
+        if (res.ok && contentType && contentType.includes("application/json")) {
+          return res.json();
+        }
+        return { advice: "First aid guidance is currently unavailable." };
+      })
       .then((data) => {
         setAiAdvice(data.advice);
         setIsLoadingAi(false);
       })
       .catch((err) => {
-        console.error("AI First Aid Error:", err);
+        console.debug("AI First Aid Error:", err);
         setIsLoadingAi(false);
       });
   };

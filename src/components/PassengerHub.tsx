@@ -44,6 +44,7 @@ import NearbyDrivers from "./NearbyDrivers";
 import WalletDashboard from "./WalletDashboard";
 import ReferralDashboard from "./ReferralDashboard";
 import RatingSystem from "./RatingSystem";
+import ChatModule from "./ChatModule";
 
 interface Notification {
   id: string;
@@ -67,7 +68,9 @@ export default function PassengerHub() {
   const { user, token, refreshUser } = useAuth();
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<"dashboard" | "book" | "book_ride" | "nearby_drivers" | "history" | "profile" | "notifications" | "settings" | "cancellations" | "wallet" | "referral" | "ratings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "book" | "book_ride" | "nearby_drivers" | "history" | "profile" | "notifications" | "settings" | "cancellations" | "wallet" | "referral" | "ratings" | "chat">("dashboard");
+  const [chatRecipientId, setChatRecipientId] = useState<string | undefined>(undefined);
+  const [chatRideId, setChatRideId] = useState<string | undefined>(undefined);
   
   // Data States
   const [activeRide, setActiveRide] = useState<EmergencyRide | null>(null);
@@ -293,14 +296,20 @@ export default function PassengerHub() {
     
     // Fetch CHCs list
     fetch("/api/chcs")
-      .then((res) => res.json())
+      .then((res) => {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json") && res.ok) {
+          return res.json();
+        }
+        return [];
+      })
       .then((data) => {
         setChcList(data);
-        if (data.length > 0) {
+        if (data && data.length > 0) {
           setDestinationChc(data[0].name);
         }
       })
-      .catch((err) => console.error("Error fetching CHCs:", err));
+      .catch((err) => console.debug("Error fetching CHCs:", err));
       
     // Fetch Active Ride
     fetchActiveRide();
@@ -340,18 +349,23 @@ export default function PassengerHub() {
     const interval = setInterval(() => {
       fetch(`/api/ride-status/${activeRide.id}`)
         .then((res) => {
-          if (!res.ok) throw new Error();
-          return res.json();
+          const contentType = res.headers.get("content-type");
+          if (res.ok && contentType && contentType.includes("application/json")) {
+            return res.json();
+          }
+          return null;
         })
         .then((data) => {
-          setActiveRide(data);
-          if (data.status === "completed" || data.status === "Completed") {
-            // Refresh list & fetch history
-            fetchHistory();
-            fetchNotifications();
+          if (data) {
+            setActiveRide(data);
+            if (data.status === "completed" || data.status === "Completed") {
+              // Refresh list & fetch history
+              fetchHistory();
+              fetchNotifications();
+            }
           }
         })
-        .catch((err) => console.error("Error polling ride status:", err));
+        .catch((err) => console.debug("Error polling ride status:", err));
     }, 4000);
 
     return () => clearInterval(interval);
@@ -368,13 +382,19 @@ export default function PassengerHub() {
       },
       body: JSON.stringify({ emergencyType: type, language: lang }),
     })
-      .then((res) => res.json())
+      .then((res) => {
+        const contentType = res.headers.get("content-type");
+        if (res.ok && contentType && contentType.includes("application/json")) {
+          return res.json();
+        }
+        return { advice: "First aid guidance is currently unavailable. Please focus on your immediate safety." };
+      })
       .then((data) => {
         setAiAdvice(data.advice);
         setIsLoadingAi(false);
       })
       .catch((err) => {
-        console.error("AI Advice Error:", err);
+        console.debug("AI Advice Error:", err);
         setIsLoadingAi(false);
       });
   };
@@ -393,14 +413,21 @@ export default function PassengerHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setActiveRide(data);
-        if (data) {
-          fetchFirstAidAdvice(data.emergencyType, aiLanguage);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setActiveRide(data);
+            if (data) {
+              fetchFirstAidAdvice(data.emergencyType, aiLanguage);
+            }
+          } catch (parseErr) {
+            console.debug("Failed to parse active ride JSON:", parseErr);
+          }
         }
       }
     } catch (e) {
-      console.error("Error fetching active ride:", e);
+      console.debug("Error fetching active ride:", e);
     } finally {
       setLoadingActive(false);
     }
@@ -413,11 +440,18 @@ export default function PassengerHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setRideHistory(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setRideHistory(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse ride history JSON:", parseErr);
+          }
+        }
       }
     } catch (e) {
-      console.error("Error fetching ride history:", e);
+      console.debug("Error fetching ride history:", e);
     } finally {
       setLoadingHistory(false);
     }
@@ -429,11 +463,18 @@ export default function PassengerHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setCancellationLogs(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setCancellationLogs(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse cancellations history JSON:", parseErr);
+          }
+        }
       }
     } catch (e) {
-      console.error("Error fetching cancellations history:", e);
+      console.debug("Error fetching cancellations history:", e);
     }
   };
 
@@ -443,11 +484,18 @@ export default function PassengerHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setCancellationReasons(data.passenger || []);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setCancellationReasons(data.passenger || []);
+          } catch (parseErr) {
+            console.debug("Failed to parse cancellation reasons JSON:", parseErr);
+          }
+        }
       }
     } catch (e) {
-      console.error("Error fetching cancellation reasons:", e);
+      console.debug("Error fetching cancellation reasons:", e);
     }
   };
 
@@ -458,11 +506,18 @@ export default function PassengerHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setNotificationsList(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setNotificationsList(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse notifications JSON:", parseErr);
+          }
+        }
       }
     } catch (e) {
-      console.error("Error fetching notifications:", e);
+      console.debug("Error fetching notifications:", e);
     } finally {
       setLoadingNotifs(false);
     }
@@ -475,11 +530,18 @@ export default function PassengerHub() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setUserSettings(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setUserSettings(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse settings JSON:", parseErr);
+          }
+        }
       }
     } catch (e) {
-      console.error("Error fetching settings:", e);
+      console.debug("Error fetching settings:", e);
     } finally {
       setLoadingSettings(false);
     }
@@ -812,6 +874,22 @@ export default function PassengerHub() {
             </button>
 
             <button
+              onClick={() => {
+                setChatRecipientId(undefined);
+                setChatRideId(undefined);
+                setActiveTab("chat");
+              }}
+              className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer ${
+                activeTab === "chat"
+                  ? "bg-orange-600 text-white shadow-md shadow-orange-100"
+                  : "bg-white text-slate-600 hover:bg-orange-50/50 hover:text-orange-600 border border-slate-100"
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 text-orange-500 fill-orange-500/10" />
+              <span>Community Chat Hub</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("cancellations")}
               className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer ${
                 activeTab === "cancellations"
@@ -1078,6 +1156,21 @@ export default function PassengerHub() {
                             <span className="text-sm font-bold text-slate-800">{activeRide.driverName}</span>
                           </div>
                           <span className="text-xs text-slate-500 font-semibold block">Contact: {activeRide.driverPhone}</span>
+                          <div className="pt-2">
+                            <button
+                              onClick={() => {
+                                if (activeRide.driverId) {
+                                  setChatRecipientId(activeRide.driverId);
+                                  setChatRideId(activeRide.id);
+                                  setActiveTab("chat");
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition shadow-sm flex items-center space-x-1"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Chat with Driver</span>
+                            </button>
+                          </div>
                         </div>
                         
                         <div className="space-y-1 md:border-l border-slate-100 md:pl-4">
@@ -1919,6 +2012,14 @@ export default function PassengerHub() {
             {/* RATINGS & REVIEWS TAB */}
             {activeTab === "ratings" && (
               <RatingSystem role="passenger" token={token} user={user} />
+            )}
+
+            {/* CHAT TAB */}
+            {activeTab === "chat" && (
+              <ChatModule
+                initialRecipientId={chatRecipientId}
+                initialRideId={chatRideId}
+              />
             )}
 
             {/* 6. SETTINGS TAB */}

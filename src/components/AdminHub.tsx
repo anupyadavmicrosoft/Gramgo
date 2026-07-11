@@ -31,13 +31,15 @@ import {
   XCircle,
   HeartPulse,
   Ticket,
-  Star
+  Star,
+  MessageSquare
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import UserManagement from "./UserManagement";
 import DriverManagement from "./DriverManagement";
 import { EmergencyNotificationsLog } from "./EmergencyNotificationsLog";
 import EmergencyDashboard from "./EmergencyDashboard";
+import ChatModule from "./ChatModule";
 import CouponManagement from "./CouponManagement";
 import RatingSystem from "./RatingSystem";
 import {
@@ -133,7 +135,7 @@ interface Permission {
 
 export default function AdminHub() {
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission" | "coupons" | "ratings">("emergency-dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission" | "coupons" | "ratings" | "chat">("emergency-dashboard");
 
   // State Management
   const [metrics, setMetrics] = useState<any>(null);
@@ -420,11 +422,18 @@ export default function AdminHub() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setPriorityStatus(data);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await res.json();
+            setPriorityStatus(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse priority status JSON:", parseErr);
+          }
+        }
       }
     } catch (err) {
-      console.error("Error fetching priority status:", err);
+      console.debug("Error fetching priority status:", err);
     }
   };
 
@@ -522,23 +531,37 @@ export default function AdminHub() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (statsRes.ok) {
-        const data = await statsRes.json();
-        setMetrics(data.metrics);
-        setCharts(data.charts);
+        const contentType = statsRes.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await statsRes.json();
+            setMetrics(data.metrics);
+            setCharts(data.charts);
+          } catch (parseErr) {
+            console.debug("Failed to parse admin stats JSON:", parseErr);
+          }
+        }
       }
 
       const bookingsRes = await fetch("/api/admin/bookings", {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (bookingsRes.ok) {
-        const data = await bookingsRes.json();
-        setBookings(data);
+        const contentType = bookingsRes.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const data = await bookingsRes.json();
+            setBookings(data);
+          } catch (parseErr) {
+            console.debug("Failed to parse admin bookings JSON:", parseErr);
+          }
+        }
       }
 
       // Poll Priority Engine status
       await fetchPriorityStatus();
     } catch (err) {
-      console.error("Polling error:", err);
+      console.debug("Polling debug info (silent):", err);
     }
   };
 
@@ -1644,6 +1667,7 @@ export default function AdminHub() {
             { id: "commission", label: "Platform Commission", icon: TrendingUp },
             { id: "coupons", label: "Subsidy Vouchers", icon: Ticket },
             { id: "ratings", label: "Ratings & Governance", icon: Star },
+            { id: "chat", label: "Admin Support Chat", icon: MessageSquare },
             { id: "notifications", label: "Emergency Alerts Log", icon: Bell }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -4046,6 +4070,13 @@ export default function AdminHub() {
           {activeTab === "ratings" && (
             <div className="lg:col-span-9">
               <RatingSystem role="admin" token={token} user={user} />
+            </div>
+          )}
+
+          {/* Admin Support Chat Tab */}
+          {activeTab === "chat" && (
+            <div className="lg:col-span-9">
+              <ChatModule />
             </div>
           )}
 

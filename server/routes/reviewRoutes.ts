@@ -26,11 +26,16 @@ function authenticateToken(req: any, res: any, next: any) {
 
 // Routes
 router.get("/", authenticateToken, ReviewController.getReviews);
+router.get("/global-analytics", authenticateToken, ReviewController.getRatingAnalytics);
 router.post("/", authenticateToken, ReviewController.createReview);
 router.get("/about/:userId", authenticateToken, ReviewController.getReviewsAboutUser);
 router.get("/by/:userId", authenticateToken, ReviewController.getReviewsByUser);
 router.get("/ride/:rideId", authenticateToken, ReviewController.getReviewsForRide);
 router.get("/stats/:userId", authenticateToken, ReviewController.getUserStats);
+router.put("/:id", authenticateToken, ReviewController.editReview);
+router.post("/:id/report", authenticateToken, ReviewController.reportReview);
+router.post("/:id/like", authenticateToken, ReviewController.likeReview);
+router.post("/:id/reply", authenticateToken, ReviewController.replyToReview);
 router.delete("/:id", authenticateToken, ReviewController.deleteReview);
 
 export default router;

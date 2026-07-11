@@ -37,11 +37,16 @@ export default function FamilyLiveTracking() {
         if (!res.ok) {
           throw new Error("Unable to locate active emergency trip.");
         }
-        const data = await res.json();
-        setRide(data);
-        setError(null);
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          setRide(data);
+          setError(null);
+        } else {
+          console.debug("Non-JSON response received for ride-status:", res.status);
+        }
       } catch (err: any) {
-        setError(err.message || "Failed to retrieve tracking details.");
+        console.debug("Failed to retrieve tracking details:", err);
       } finally {
         setLoading(false);
       }

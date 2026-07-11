@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import mongoose from "mongoose";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -27,6 +28,10 @@ import couponRoutes from "./server/routes/couponRoutes";
 import { seedCouponData } from "./server/models/Coupon";
 import reviewRoutes from "./server/routes/reviewRoutes";
 import { ReviewDb } from "./server/models/Review";
+import chatRoutes from "./server/routes/chatRoutes";
+import { MessageDb } from "./server/models/Message";
+import { CallDb } from "./server/models/Call";
+import { UserNotificationDb } from "./server/models/UserNotification";
 
 dotenv.config();
 
@@ -170,12 +175,217 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Join Conversation Room
+  socket.on("join_conversation", (data) => {
+    const conversationId = typeof data === "string" ? data : data?.conversationId;
+    if (conversationId) {
+      socket.join(`conversation_${conversationId}`);
+      console.log(`Socket ${socket.id} joined conversation_${conversationId}`);
+      socket.emit("joined_conversation", { conversationId });
+    }
+  });
+
+  socket.on("Join Conversation", (data) => {
+    const conversationId = typeof data === "string" ? data : data?.conversationId;
+    if (conversationId) {
+      socket.join(`conversation_${conversationId}`);
+      console.log(`Socket ${socket.id} joined conversation_${conversationId}`);
+    }
+  });
+
+  socket.on("join:conversation", (data) => {
+    const conversationId = typeof data === "string" ? data : data?.conversationId;
+    if (conversationId) {
+      socket.join(`conversation_${conversationId}`);
+      console.log(`Socket ${socket.id} joined conversation_${conversationId}`);
+    }
+  });
+
+  // Leave Conversation Room
+  socket.on("leave_conversation", (data) => {
+    const conversationId = typeof data === "string" ? data : data?.conversationId;
+    if (conversationId) {
+      socket.leave(`conversation_${conversationId}`);
+      console.log(`Socket ${socket.id} left conversation_${conversationId}`);
+      socket.emit("left_conversation", { conversationId });
+    }
+  });
+
+  socket.on("Leave Conversation", (data) => {
+    const conversationId = typeof data === "string" ? data : data?.conversationId;
+    if (conversationId) {
+      socket.leave(`conversation_${conversationId}`);
+      console.log(`Socket ${socket.id} left conversation_${conversationId}`);
+    }
+  });
+
+  socket.on("leave:conversation", (data) => {
+    const conversationId = typeof data === "string" ? data : data?.conversationId;
+    if (conversationId) {
+      socket.leave(`conversation_${conversationId}`);
+      console.log(`Socket ${socket.id} left conversation_${conversationId}`);
+    }
+  });
+
+  // User Presence (Online Status / Offline Status)
+  socket.on("user:online", (data) => {
+    const { userId, userName, role } = data || {};
+    if (userId) {
+      (socket as any).userId = userId;
+      (global as any).onlineUsers = (global as any).onlineUsers || {};
+      (global as any).onlineUsers[userId] = {
+        socketId: socket.id,
+        userName,
+        role,
+        lastSeen: Date.now()
+      };
+      console.log(`Presence: User ${userId} (${userName}) is online.`);
+      io.emit("presence:update", {
+        userId,
+        status: "online",
+        lastSeen: Date.now()
+      });
+    }
+  });
+
+  // Real-time Typing Indicators
+  socket.on("typing:start", (data) => {
+    const { conversationId, userId, userName } = data || {};
+    if (conversationId && userId) {
+      socket.to(`conversation_${conversationId}`).emit("typing:status", {
+        conversationId,
+        userId,
+        userName,
+        isTyping: true
+      });
+    }
+  });
+
+  socket.on("typing:stop", (data) => {
+    const { conversationId, userId } = data || {};
+    if (conversationId && userId) {
+      socket.to(`conversation_${conversationId}`).emit("typing:status", {
+        conversationId,
+        userId,
+        isTyping: false
+      });
+    }
+  });
+
+  // Real-time Read Receipts (Delivered / Seen)
+  socket.on("message:read", async (data) => {
+    const { conversationId, userId } = data || {};
+    if (conversationId && userId) {
+      try {
+        await MessageDb.markAsRead(conversationId, userId);
+        io.to(`conversation_${conversationId}`).emit("messages:read", {
+          conversationId,
+          userId
+        });
+      } catch (err) {
+        console.error("Error marking messages as read from socket:", err);
+      }
+    }
+  });
+
+  // WebRTC Voice Calling signaling
+  socket.on("call:initiate", (data) => {
+    const { conversationId, callerId, callerName, receiverId, sdp } = data || {};
+    const onlineUsers = (global as any).onlineUsers || {};
+    const receiverSession = onlineUsers[receiverId];
+    
+    if (receiverSession && receiverSession.socketId) {
+      io.to(receiverSession.socketId).emit("call:incoming", {
+        conversationId,
+        callerId,
+        callerName,
+        sdp
+      });
+    } else {
+      socket.emit("call:failed", {
+        conversationId,
+        error: "Recipient is currently offline"
+      });
+    }
+  });
+
+  socket.on("call:accept", (data) => {
+    const { conversationId, callerId, receiverId, sdp } = data || {};
+    const onlineUsers = (global as any).onlineUsers || {};
+    const callerSession = onlineUsers[callerId];
+    
+    if (callerSession && callerSession.socketId) {
+      io.to(callerSession.socketId).emit("call:accepted", {
+        conversationId,
+        receiverId,
+        sdp
+      });
+    }
+  });
+
+  socket.on("call:signal", (data) => {
+    const { conversationId, targetId, senderId, signalData } = data || {};
+    const onlineUsers = (global as any).onlineUsers || {};
+    const targetSession = onlineUsers[targetId];
+    
+    if (targetSession && targetSession.socketId) {
+      io.to(targetSession.socketId).emit("call:signal", {
+        conversationId,
+        senderId,
+        signalData
+      });
+    }
+  });
+
+  socket.on("call:reject", (data) => {
+    const { conversationId, callerId, receiverId } = data || {};
+    const onlineUsers = (global as any).onlineUsers || {};
+    const callerSession = onlineUsers[callerId];
+    
+    if (callerSession && callerSession.socketId) {
+      io.to(callerSession.socketId).emit("call:rejected", {
+        conversationId,
+        receiverId
+      });
+    }
+  });
+
+  socket.on("call:end", (data) => {
+    const { conversationId, otherUserId } = data || {};
+    const onlineUsers = (global as any).onlineUsers || {};
+    const otherSession = onlineUsers[otherUserId];
+    
+    if (otherSession && otherSession.socketId) {
+      io.to(otherSession.socketId).emit("call:ended", {
+        conversationId
+      });
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
+    const userId = (socket as any).userId;
+    if (userId) {
+      (global as any).onlineUsers = (global as any).onlineUsers || {};
+      delete (global as any).onlineUsers[userId];
+      console.log(`Presence: User ${userId} is offline.`);
+      io.emit("presence:update", {
+        userId,
+        status: "offline",
+        lastSeen: Date.now()
+      });
+    }
   });
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use("/uploads", express.static(uploadsDir));
 
 // In-Memory Database for demonstration and local play
 interface Driver {
@@ -943,6 +1153,191 @@ app.get("/api/auth/me", authenticateToken, async (req: any, res: any) => {
     res.json(userResponse);
   } catch (error) {
     res.status(500).json({ error: "Server error fetching user details." });
+  }
+});
+
+// ---------------- CALL HISTORY APIS ----------------
+
+app.get("/api/calls", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const calls = await CallDb.findByUserId(userId);
+    res.json(calls);
+  } catch (error) {
+    console.error("Error fetching calls:", error);
+    res.status(500).json({ error: "Server error fetching call history." });
+  }
+});
+
+app.post("/api/calls", authenticateToken, async (req: any, res: any) => {
+  try {
+    const { conversationId, callerId, callerName, receiverId, receiverName, status, duration } = req.body;
+    
+    const newCall = await CallDb.create({
+      conversationId,
+      callerId: callerId || req.user.id,
+      callerName: callerName || "Unknown",
+      receiverId: receiverId || "",
+      receiverName: receiverName || "Unknown",
+      status: status || "missed",
+      duration: Number(duration) || 0,
+      createdAt: new Date()
+    });
+    
+    res.status(201).json(newCall);
+  } catch (error) {
+    console.error("Error creating call log:", error);
+    res.status(500).json({ error: "Server error saving call record." });
+  }
+});
+
+// ---------------- USER NOTIFICATIONS & PUSH SETTINGS APIS ----------------
+
+app.get("/api/notifications", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const notifications = await UserNotificationDb.getNotifications(userId);
+    res.json(notifications);
+  } catch (error) {
+    console.error("Error getting user notifications:", error);
+    res.status(500).json({ error: "Server error getting notifications." });
+  }
+});
+
+app.get("/api/notifications/unread-count", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const count = await UserNotificationDb.getUnreadCount(userId);
+    res.json({ unreadCount: count });
+  } catch (error) {
+    console.error("Error getting notification count:", error);
+    res.status(500).json({ error: "Server error getting unread count." });
+  }
+});
+
+app.post("/api/notifications/mark-read", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Notification ID is required." });
+    }
+    const success = await UserNotificationDb.markAsRead(id, userId);
+    res.json({ success });
+  } catch (error) {
+    console.error("Error marking notification as read:", error);
+    res.status(500).json({ error: "Server error marking notification." });
+  }
+});
+
+app.post("/api/notifications/mark-all-read", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const success = await UserNotificationDb.markAllAsRead(userId);
+    res.json({ success });
+  } catch (error) {
+    console.error("Error marking all notifications as read:", error);
+    res.status(500).json({ error: "Server error." });
+  }
+});
+
+app.delete("/api/notifications/:id", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const success = await UserNotificationDb.delete(id, userId);
+    res.json({ success });
+  } catch (error) {
+    console.error("Error deleting notification:", error);
+    res.status(500).json({ error: "Server error." });
+  }
+});
+
+app.delete("/api/notifications", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const success = await UserNotificationDb.clearAll(userId);
+    res.json({ success });
+  } catch (error) {
+    console.error("Error clearing notifications:", error);
+    res.status(500).json({ error: "Server error clearing notification log." });
+  }
+});
+
+app.get("/api/notifications/settings", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const settings = await UserNotificationDb.getSettings(userId);
+    res.json(settings);
+  } catch (error) {
+    console.error("Error getting notification settings:", error);
+    res.status(500).json({ error: "Server error fetching notification settings." });
+  }
+});
+
+app.put("/api/notifications/settings", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const { pushToken, enabled, rideAlerts, chatAlerts, voiceAlerts, soundEnabled, alertSound } = req.body;
+    
+    const updated = await UserNotificationDb.updateSettings(userId, {
+      pushToken,
+      enabled,
+      rideAlerts,
+      chatAlerts,
+      voiceAlerts,
+      soundEnabled,
+      alertSound
+    });
+    
+    res.json(updated);
+  } catch (error) {
+    console.error("Error updating notification settings:", error);
+    res.status(500).json({ error: "Server error saving settings." });
+  }
+});
+
+app.post("/api/notifications/simulate", authenticateToken, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+    const { title, body, type, data } = req.body;
+    
+    // Fetch settings to ensure delivery checks can be simulated
+    const settings = await UserNotificationDb.getSettings(userId);
+    if (!settings.enabled) {
+      return res.status(400).json({ error: "Push notifications are disabled in user settings." });
+    }
+    
+    // Category check
+    if (type === "ride_alert" && !settings.rideAlerts) {
+      return res.status(400).json({ error: "Ride Alerts are disabled in user settings." });
+    }
+    if (type === "chat_alert" && !settings.chatAlerts) {
+      return res.status(400).json({ error: "Chat Alerts are disabled in user settings." });
+    }
+    if (type === "voice_call" && !settings.voiceAlerts) {
+      return res.status(400).json({ error: "Voice Call Alerts are disabled in user settings." });
+    }
+
+    const newNotification = await UserNotificationDb.create({
+      userId,
+      title: title || "Simulated Push Notification",
+      body: body || "This is a simulated Firebase Cloud Messaging message.",
+      type: type || "general",
+      data: data || {},
+      read: false,
+      createdAt: new Date()
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Simulated push notification dispatched successfully.",
+      fcmTokenUsed: settings.pushToken || "simulated_fcm_token_xyz_123",
+      notification: newNotification
+    });
+  } catch (error) {
+    console.error("Error simulating notification dispatch:", error);
+    res.status(500).json({ error: "Server error during push simulation." });
   }
 });
 
@@ -2944,6 +3339,9 @@ app.use("/api/coupons", couponRoutes);
 
 // --- RATING SYSTEM APIS ---
 app.use("/api/reviews", reviewRoutes);
+
+// --- CHAT SYSTEM APIS ---
+app.use("/api/chat", authenticateToken, chatRoutes);
 
 
 

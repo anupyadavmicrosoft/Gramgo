@@ -19,6 +19,7 @@ import AdminHub from "./components/AdminHub";
 import ProtectedRoute from "./components/ProtectedRoute";
 import FamilyLiveTracking from "./components/FamilyLiveTracking";
 import EmergencySOSButton from "./components/EmergencySOSButton";
+import NotificationModule from "./components/NotificationModule";
 import { AuthProvider } from "./context/AuthContext";
 
 export default function App() {
@@ -41,6 +42,16 @@ export default function App() {
               <Route path="/track/:rideId" element={<FamilyLiveTracking />} />
 
               {/* Protected Routes */}
+              <Route
+                path="/notifications"
+                element={
+                  <ProtectedRoute>
+                    <div className="py-10 px-4 max-w-7xl mx-auto">
+                      <NotificationModule />
+                    </div>
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/emergency"
                 element={
