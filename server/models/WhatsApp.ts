@@ -156,6 +156,87 @@ const memoryTemplates: IMessageTemplate[] = [
     status: "APPROVED",
     body: "💖 GramGo Emergency Ride Completed: Patient {{1}} has been safely transported to {{2}}. Thank you volunteer driver {{3}} for your heroic service!",
     createdAt: new Date()
+  },
+  {
+    id: "tpl_ride_booked",
+    name: "ride_booked",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "Your GramGo booking {{1}} is confirmed! From {{2}} to {{3}}. Searching for nearest volunteer drivers.",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_driver_assigned",
+    name: "driver_assigned",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "✅ GramGo Driver Assigned! Volunteer hero {{1}} is on their way in {{2}}. Contact: {{3}}.",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_driver_arriving",
+    name: "driver_arriving",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "⚡ Your GramGo driver {{1}} is arriving shortly at {{2}}.",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_driver_reached",
+    name: "driver_reached",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "📍 Your GramGo driver {{1}} has reached your pickup point: {{2}}.",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_ride_started",
+    name: "ride_started",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "🚀 Your GramGo ride to {{1}} has started. Drive safely!",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_ride_completed",
+    name: "ride_completed",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "🏁 Your GramGo ride to {{1}} is completed. Thank you for riding with GramGo!",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_ride_cancelled",
+    name: "ride_cancelled",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "⚠️ Your GramGo ride booking {{1}} has been cancelled.",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_emergency_ride",
+    name: "emergency_ride",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "🚨 GRAMGO EMERGENCY ALERT: Patient {{1}} from {{2}} requires urgent transit to {{3}}! Priority: {{4}}.",
+    createdAt: new Date()
+  },
+  {
+    id: "tpl_whatsapp_otp",
+    name: "whatsapp_otp",
+    category: "UTILITY",
+    language: "en",
+    status: "APPROVED",
+    body: "🔑 Your GramGo verification OTP is: {{1}}. Valid for 5 minutes. Do not share this code.",
+    createdAt: new Date()
   }
 ];
 const memoryLogs: IDeliveryLog[] = [];
@@ -294,6 +375,114 @@ export const MessageTemplateDb = {
       return true;
     }
     return false;
+  },
+
+  async seedTemplates(): Promise<void> {
+    const defaultTemplates: Partial<IMessageTemplate>[] = [
+      {
+        id: "tpl_1",
+        name: "emergency_broadcast",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "🚨 GRAMGO EMERGENCY ALERT: A critical patient {{1}} requires urgent medical transit from {{2}} to community health centre {{3}}. Contact: {{4}}."
+      },
+      {
+        id: "tpl_2",
+        name: "driver_matched",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "✅ GramGo Volunteer Driver Assigned: Volunteer hero {{1}} is assigned to transport patient {{2}} using vehicle {{3}} (Contact: {{4}})."
+      },
+      {
+        id: "tpl_3",
+        name: "trip_completed",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "💖 GramGo Emergency Ride Completed: Patient {{1}} has been safely transported to {{2}}. Thank you volunteer driver {{3}} for your heroic service!"
+      },
+      {
+        id: "tpl_ride_booked",
+        name: "ride_booked",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "Your GramGo booking {{1}} is confirmed! From {{2}} to {{3}}. Searching for nearest volunteer drivers."
+      },
+      {
+        id: "tpl_driver_assigned",
+        name: "driver_assigned",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "✅ GramGo Driver Assigned! Volunteer hero {{1}} is on their way in {{2}}. Contact: {{3}}."
+      },
+      {
+        id: "tpl_driver_arriving",
+        name: "driver_arriving",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "⚡ Your GramGo driver {{1}} is arriving shortly at {{2}}."
+      },
+      {
+        id: "tpl_driver_reached",
+        name: "driver_reached",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "📍 Your GramGo driver {{1}} has reached your pickup point: {{2}}."
+      },
+      {
+        id: "tpl_ride_started",
+        name: "ride_started",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "🚀 Your GramGo ride to {{1}} has started. Drive safely!"
+      },
+      {
+        id: "tpl_ride_completed",
+        name: "ride_completed",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "🏁 Your GramGo ride to {{1}} is completed. Thank you for riding with GramGo!"
+      },
+      {
+        id: "tpl_ride_cancelled",
+        name: "ride_cancelled",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "⚠️ Your GramGo ride booking {{1}} has been cancelled."
+      },
+      {
+        id: "tpl_emergency_ride",
+        name: "emergency_ride",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "🚨 GRAMGO EMERGENCY ALERT: Patient {{1}} from {{2}} requires urgent transit to {{3}}! Priority: {{4}}."
+      },
+      {
+        id: "tpl_whatsapp_otp",
+        name: "whatsapp_otp",
+        category: "UTILITY",
+        language: "en",
+        status: "APPROVED",
+        body: "🔑 Your GramGo verification OTP is: {{1}}. Valid for 5 minutes. Do not share this code."
+      }
+    ];
+
+    for (const tpl of defaultTemplates) {
+      const existing = await this.findByName(tpl.name!);
+      if (!existing) {
+        await this.create(tpl);
+      }
+    }
   }
 };
 

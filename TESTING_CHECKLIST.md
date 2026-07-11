@@ -82,3 +82,44 @@ This checklist provides a structured guide to thoroughly test the newly integrat
 - [ ] Select a date range.
 - [ ] Verify that the listed ledger matches the intersections of all selected parameters.
 - [ ] Click **Clear Filters** and verify the full list restores immediately.
+
+---
+
+## 📋 5. WhatsApp OTP Verification Testing
+
+### Test Case 5.1: Dynamic WhatsApp OTP Login (No Password)
+- [ ] Go to the `/login` page.
+- [ ] Click on the **WhatsApp OTP** login tab.
+- [ ] Enter a registered demo phone number (e.g., `9876543210`). Click **Send OTP via WhatsApp**.
+- [ ] Verify that the simulated OTP code box renders with a secure random 6-digit code.
+- [ ] Verify that the **Resend Code** link is disabled with a 30s countdown timer running.
+- [ ] Enter the incorrect OTP code. Click **Verify & Sign In**.
+- [ ] Verify that a red error alert appears, informing you of the invalid attempt and remaining attempts left.
+- [ ] Enter 3 incorrect OTPs in a row.
+- [ ] Verify that on the 3rd fail, the OTP is invalidated with the alert: `"Too many failed attempts. This OTP has been invalidated. Please generate a new one."`
+- [ ] Request a new OTP, wait 5 minutes (or simulate time passage), and verify that entering it returns `"OTP has expired"`.
+- [ ] Request another new OTP, input the correct code (or debug fallback `"123456"`), and click **Verify & Sign In**.
+- [ ] Verify that you are instantly and securely logged in and redirected to your primary dashboard.
+
+### Test Case 5.2: Verified Onboarding / User Registration OTP
+- [ ] Navigate to `/register`.
+- [ ] Enter user details (name, village, password, etc.).
+- [ ] Enter a mobile number.
+- [ ] Verify that the **Create Account** submit button remains blocked / returns an error if clicked before verifying.
+- [ ] Click the **Verify** button next to the Phone input field.
+- [ ] Verify that the OTP input field, countdown timer, and simulated code badge display beautifully.
+- [ ] Click **Change** to modify the number, and verify that the input field unlocks and clears verification states.
+- [ ] Re-enter the number, click **Verify**, type the correct 6-digit code, and click **Verify OTP**.
+- [ ] Verify that a green check badge `"Verified"` appears, and the input locks to prevent modification.
+- [ ] Click **Create Account**.
+- [ ] Verify successful account creation, registration database mapping, and redirection.
+
+### Test Case 5.3: WhatsApp OTP Forgot Password / Password Reset
+- [ ] Navigate to `/forgot-password`.
+- [ ] Enter a registered user's phone or email. Click **Request OTP Code**.
+- [ ] Verify that a simulated recovery code banner appears on Step 2.
+- [ ] Input an incorrect code. Verify that attempt limits and decrement messages trigger cleanly.
+- [ ] Input 3 incorrect recovery codes. Verify that the system invalidates the OTP block and rejects further entry until a new OTP is requested.
+- [ ] Request a new OTP, enter the correct code, enter a new password (min 6 chars), and click **Reset Password & Sign In**.
+- [ ] Verify the green "Success" screen appears, and that you can now successfully log in with the new password.
+

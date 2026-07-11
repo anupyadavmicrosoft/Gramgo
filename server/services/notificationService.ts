@@ -1,8 +1,10 @@
 import { EmergencyRide } from "../../src/types";
+import { IBooking } from "../models/Booking";
 import { EmergencyNotificationDb, IEmergencyNotification, INotificationChannelStatus } from "../models/EmergencyNotification";
 import { EmergencyContactDb } from "../models/EmergencyContact";
 import { UserDb } from "../models/User";
 import { UserNotificationDb } from "../models/UserNotification";
+import { WhatsAppService } from "./whatsAppService";
 
 export class NotificationService {
   /**
@@ -126,6 +128,11 @@ export class NotificationService {
           }).catch(e => console.error("Error creating driver push notification:", e));
         }
       }
+
+      // Automatically dispatch WhatsApp notifications for EmergencyRide
+      await this.sendRideWhatsAppNotifications(ride, eventType).catch(e => {
+        console.error("Error sending WhatsApp emergency notifications:", e);
+      });
     } catch (err) {
       console.error("[NotificationService] Error dispatching alerts:", err);
     }
@@ -341,6 +348,264 @@ export class NotificationService {
 
       default:
         return `GramGo Emergency Alert: Status update on active request for ${patientStr}. Current Phase: ${eventType}.`;
+    }
+  }
+
+  /**
+   * Main entry point to dispatch notifications for standard bookings
+   */
+  static async dispatchStandardRideAlerts(booking: IBooking, eventType: string) {
+    try {
+      console.log(`[NotificationService] Triggering standard ride alerts for Booking ${booking.id} on event: "${eventType}"`);
+
+      // Resolve variables for templates
+      const passengerPhone = booking.passengerPhone;
+      const passengerName = booking.passengerName || "GramGo Passenger";
+      const pickup = booking.pickupLocation || "Pickup Landmark";
+      const destination = booking.destination || "Destination";
+      const bookingId = booking.id || "N/A";
+
+      // Send standard templates
+      if (eventType === "ride_booked" || eventType === "pending" || eventType === "created") {
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "ride_booked",
+            [bookingId, pickup, destination]
+          );
+        }
+      } 
+      else if (eventType === "driver_assigned" || eventType === "accepted") {
+        const driverName = booking.driverName || "Volunteer Driver";
+        const vehicle = booking.rideType || "Vehicle";
+        const driverPhone = booking.driverPhone || "N/A";
+
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "driver_assigned",
+            [driverName, vehicle, driverPhone]
+          );
+        }
+      } 
+      else if (eventType === "driver_arriving") {
+        const driverName = booking.driverName || "Volunteer Driver";
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "driver_arriving",
+            [driverName, pickup]
+          );
+        }
+      } 
+      else if (eventType === "driver_reached" || eventType === "reached_pickup") {
+        const driverName = booking.driverName || "Volunteer Driver";
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "driver_reached",
+            [driverName, pickup]
+          );
+        }
+      } 
+      else if (eventType === "ride_started" || eventType === "started") {
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "ride_started",
+            [destination]
+          );
+        }
+      } 
+      else if (eventType === "ride_completed" || eventType === "completed") {
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "ride_completed",
+            [destination]
+          );
+        }
+      } 
+      else if (eventType === "ride_cancelled" || eventType === "cancelled") {
+        if (passengerPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            passengerPhone,
+            "ride_cancelled",
+            [bookingId]
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[NotificationService] Error dispatching standard ride alerts:", err);
+    }
+  }
+
+  /**
+   * Automatically dispatch WhatsApp template messages for emergency ride events
+   */
+  private static async sendRideWhatsAppNotifications(ride: EmergencyRide, eventType: string) {
+    try {
+      const patientPhone = ride.patientPhone || ride.passengerPhone;
+      const patientName = ride.patientName || "GramGo Passenger";
+      const village = ride.village || "Panchayat Village";
+      const landmark = ride.landmark || "Village Center";
+      const destination = ride.destinationChc || "Community Health Centre";
+      const rideId = ride.id || "N/A";
+
+      // 1. Send "Emergency Ride" (Created) or "Ride Booked" notifications
+      if (eventType === "Emergency Requested" || eventType === "requested" || eventType === "Searching Driver") {
+        // Send Ride Booked to Patient
+        if (patientPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            patientPhone,
+            "ride_booked",
+            [rideId, `${landmark}, ${village}`, destination]
+          );
+        }
+
+        // Send Emergency Ride / Emergency Alert to Emergency Contacts
+        const contacts = await EmergencyContactDb.findByUserId(ride.passengerId || "");
+        if (contacts && contacts.length > 0) {
+          for (const contact of contacts) {
+            await WhatsAppService.sendTemplateTrigger(
+              contact.phone,
+              "emergency_ride",
+              [patientName, village, destination, (ride.priority || "critical").toUpperCase()]
+            );
+          }
+        } else {
+          // Fallback simulation emergency contacts if none in DB
+          await WhatsAppService.sendTemplateTrigger(
+            "+919876543210",
+            "emergency_ride",
+            [patientName, village, destination, (ride.priority || "critical").toUpperCase()]
+          );
+        }
+      }
+
+      // 2. Driver Assigned
+      else if (eventType === "Driver Assigned" || eventType === "driver_assigned") {
+        const driverName = ride.driverName || "Volunteer Driver";
+        const vehicle = ride.vehicleType || "Ambulance Vehicle";
+        const driverPhone = ride.driverPhone || "N/A";
+
+        if (patientPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            patientPhone,
+            "driver_assigned",
+            [driverName, vehicle, driverPhone]
+          );
+        }
+
+        // Notify emergency contacts too!
+        const contacts = await EmergencyContactDb.findByUserId(ride.passengerId || "");
+        if (contacts && contacts.length > 0) {
+          for (const contact of contacts) {
+            await WhatsAppService.sendTemplateTrigger(
+              contact.phone,
+              "driver_assigned",
+              [driverName, vehicle, driverPhone]
+            );
+          }
+        }
+      }
+
+      // 3. Driver Arriving
+      else if (eventType === "Driver Arriving" || eventType === "driver_arriving") {
+        const driverName = ride.driverName || "Volunteer Driver";
+        if (patientPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            patientPhone,
+            "driver_arriving",
+            [driverName, `${landmark}, ${village}`]
+          );
+        }
+      }
+
+      // 4. Driver Reached pickup point (reached_pickup)
+      else if (eventType === "reached_pickup" || eventType === "Passenger Picked") {
+        const driverName = ride.driverName || "Volunteer Driver";
+        if (patientPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            patientPhone,
+            "driver_reached",
+            [driverName, landmark]
+          );
+        }
+      }
+
+      // 5. Ride Started
+      if (eventType === "Passenger Picked" || eventType === "ride_started" || eventType === "Hospital Reached") {
+        if (eventType === "Passenger Picked" || eventType === "ride_started") {
+          if (patientPhone) {
+            await WhatsAppService.sendTemplateTrigger(
+              patientPhone,
+              "ride_started",
+              [destination]
+            );
+          }
+
+          // Notify emergency contacts too!
+          const contacts = await EmergencyContactDb.findByUserId(ride.passengerId || "");
+          if (contacts && contacts.length > 0) {
+            for (const contact of contacts) {
+              await WhatsAppService.sendTemplateTrigger(
+                contact.phone,
+                "ride_started",
+                [destination]
+              );
+            }
+          }
+        }
+      }
+
+      // 6. Ride Completed
+      if (eventType === "Completed" || eventType === "completed") {
+        if (patientPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            patientPhone,
+            "ride_completed",
+            [destination]
+          );
+        }
+
+        // Notify emergency contacts too!
+        const contacts = await EmergencyContactDb.findByUserId(ride.passengerId || "");
+        if (contacts && contacts.length > 0) {
+          for (const contact of contacts) {
+            await WhatsAppService.sendTemplateTrigger(
+              contact.phone,
+              "ride_completed",
+              [destination]
+            );
+          }
+        }
+      }
+
+      // 7. Ride Cancelled
+      else if (eventType === "Cancelled" || eventType === "cancelled") {
+        if (patientPhone) {
+          await WhatsAppService.sendTemplateTrigger(
+            patientPhone,
+            "ride_cancelled",
+            [rideId]
+          );
+        }
+
+        // Notify emergency contacts too!
+        const contacts = await EmergencyContactDb.findByUserId(ride.passengerId || "");
+        if (contacts && contacts.length > 0) {
+          for (const contact of contacts) {
+            await WhatsAppService.sendTemplateTrigger(
+              contact.phone,
+              "ride_cancelled",
+              [rideId]
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[NotificationService] Error sending WhatsApp ride notifications:", err);
     }
   }
 }

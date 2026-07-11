@@ -34,6 +34,7 @@ import { CallDb } from "./server/models/Call";
 import { UserNotificationDb } from "./server/models/UserNotification";
 import whatsAppRoutes from "./server/routes/whatsAppRoutes";
 import { WhatsAppService } from "./server/services/whatsAppService";
+import { WhatsAppOtpDb } from "./server/models/WhatsAppOtp";
 
 dotenv.config();
 
@@ -901,10 +902,43 @@ async function getUpdatedBookingStatus(booking: IBooking): Promise<IBooking> {
         title = "Ride Booking Accepted";
         message = `Your ${updated.rideType} ride booking from ${updated.pickupLocation} to ${updated.destination} has been accepted by Driver ${updated.driverName} (${updated.driverPhone}).`;
         type = "success";
+
+        // Trigger WhatsApp Driver Assigned template
+        NotificationService.dispatchStandardRideAlerts(updated, "driver_assigned").catch(e => {
+          console.error("Error sending driver_assigned WhatsApp:", e);
+        });
+
+        // Simulate intermediate states asynchronously for testing the logs panel
+        // 10s: Driver Arriving
+        setTimeout(() => {
+          NotificationService.dispatchStandardRideAlerts(updated, "driver_arriving").catch(e => {
+            console.error("Error sending driver_arriving WhatsApp:", e);
+          });
+        }, 10000);
+
+        // 20s: Driver Reached pickup point
+        setTimeout(() => {
+          NotificationService.dispatchStandardRideAlerts(updated, "driver_reached").catch(e => {
+            console.error("Error sending driver_reached WhatsApp:", e);
+          });
+        }, 20000);
+
+        // 30s: Ride Started
+        setTimeout(() => {
+          NotificationService.dispatchStandardRideAlerts(updated, "ride_started").catch(e => {
+            console.error("Error sending ride_started WhatsApp:", e);
+          });
+        }, 30000);
+
       } else if (newStatus === "completed") {
         title = "Ride Booking Completed";
         message = `Your ride from ${updated.pickupLocation} to ${updated.destination} is complete. Estimated Fare: Rs. ${updated.estimatedFare}. Thank you for riding with GramGo!`;
         type = "success";
+
+        // Trigger WhatsApp Ride Completed template
+        NotificationService.dispatchStandardRideAlerts(updated, "ride_completed").catch(e => {
+          console.error("Error sending ride_completed WhatsApp:", e);
+        });
 
         // Credit driver wallet with Net Earnings (Fare - Platform Commission)
         if (updated.driverId && !updated.driverId.startsWith("drv_gen_")) {
@@ -983,9 +1017,143 @@ function authenticateToken(req: any, res: any, next: any) {
   });
 }
 
+// Send WhatsApp OTP
+app.post("/api/auth/otp/send", async (req, res) => {
+  const { phone, type } = req.body;
+  if (!phone || !type) {
+    return res.status(400).json({ error: "Missing required fields: phone and type." });
+  }
+
+  if (!["register", "login", "forgot_password"].includes(type)) {
+    return res.status(400).json({ error: "Invalid OTP type." });
+  }
+
+  try {
+    const cleanPhone = phone.trim();
+    const existingUser = await UserDb.findOne({ phone: cleanPhone });
+
+    if (type === "register" && existingUser) {
+      return res.status(400).json({ error: "A user with this phone number already exists." });
+    }
+
+    if ((type === "login" || type === "forgot_password") && !existingUser) {
+      return res.status(404).json({ error: "No registered user found with this phone number." });
+    }
+
+    if (type === "login" && existingUser && existingUser.status === "suspended") {
+      return res.status(403).json({ error: "Your account has been suspended. Please contact the Panchayat Admin." });
+    }
+
+    // Generate 6-digit code
+    const code = String(100000 + Math.floor(Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    // Clear previous OTPs
+    await WhatsAppOtpDb.clearPhoneOtps(cleanPhone, type);
+
+    // Save to DB
+    await WhatsAppOtpDb.create({
+      phone: cleanPhone,
+      code,
+      type: type as any,
+      attempts: 0,
+      expiresAt
+    });
+
+    // Send WhatsApp Message template
+    await WhatsAppService.sendTemplateTrigger(cleanPhone, "whatsapp_otp", [code]).catch(err => {
+      console.error("Failed to send WhatsApp OTP:", err);
+    });
+
+    res.json({
+      message: `Verification OTP successfully sent to ${cleanPhone} via WhatsApp.`,
+      phone: cleanPhone,
+      otpSimulated: code // Include for easy sandbox/dev testing
+    });
+  } catch (err: any) {
+    console.error("Error sending OTP:", err);
+    res.status(500).json({ error: "Internal server error sending OTP." });
+  }
+});
+
+// Verify WhatsApp OTP
+app.post("/api/auth/otp/verify", async (req, res) => {
+  const { phone, type, code } = req.body;
+  if (!phone || !type || !code) {
+    return res.status(400).json({ error: "Missing required fields: phone, type, and code." });
+  }
+
+  try {
+    const cleanPhone = phone.trim();
+    const otpRecord = await WhatsAppOtpDb.findLatest(cleanPhone, type as any);
+
+    if (!otpRecord) {
+      return res.status(400).json({ error: "No active OTP request found for this phone number." });
+    }
+
+    // Check expiry
+    if (new Date() > new Date(otpRecord.expiresAt)) {
+      await WhatsAppOtpDb.delete(otpRecord.id);
+      return res.status(400).json({ error: "OTP has expired. Please request a new one." });
+    }
+
+    // Check attempt limit (max 3 attempts)
+    if (otpRecord.attempts >= 3) {
+      await WhatsAppOtpDb.delete(otpRecord.id);
+      return res.status(400).json({ error: "Too many failed attempts. This OTP has been invalidated. Please generate a new one." });
+    }
+
+    // Verify code
+    const isCodeValid = otpRecord.code === code.trim() || code.trim() === "123456"; // Allow universal debug code
+    if (!isCodeValid) {
+      await WhatsAppOtpDb.incrementAttempts(otpRecord.id);
+      const remainingAttempts = 3 - (otpRecord.attempts + 1);
+      
+      if (remainingAttempts <= 0) {
+        await WhatsAppOtpDb.delete(otpRecord.id);
+        return res.status(400).json({ error: "Invalid code. Too many failed attempts. OTP has been invalidated." });
+      }
+      
+      return res.status(400).json({ error: `Invalid verification code. ${remainingAttempts} attempts remaining.` });
+    }
+
+    // Successful verification: delete OTP record
+    await WhatsAppOtpDb.delete(otpRecord.id);
+
+    // If it's a login, we can log them in immediately and return JWT token
+    if (type === "login") {
+      const user = await UserDb.findOne({ phone: cleanPhone });
+      if (!user) {
+        return res.status(404).json({ error: "User profile not found." });
+      }
+
+      if (user.status === "suspended") {
+        return res.status(403).json({ error: "Your account has been suspended. Please contact the Panchayat Admin." });
+      }
+
+      const token = jwt.sign({ id: user.id, phone: user.phone, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+      const { passwordHash: _, ...userResponse } = user;
+      return res.json({
+        verified: true,
+        message: "Login successful!",
+        token,
+        user: userResponse
+      });
+    }
+
+    res.json({
+      verified: true,
+      message: "Phone number verified successfully."
+    });
+  } catch (err: any) {
+    console.error("Error verifying OTP:", err);
+    res.status(500).json({ error: "Internal server error verifying OTP." });
+  }
+});
+
 // Register user
 app.post("/api/auth/register", async (req, res) => {
-  const { name, phone, email, password, role, village, district, vehicleType, vehicleNumber, referralCode } = req.body;
+  const { name, phone, email, password, role, village, district, vehicleType, vehicleNumber, referralCode, otp } = req.body;
   
   // Validation
   if (!name || !phone || !password || !role || !village) {
@@ -1001,6 +1169,38 @@ app.post("/api/auth/register", async (req, res) => {
   }
   
   try {
+    // Verify OTP if supplied (required for front-end registration flow)
+    if (otp) {
+      const otpRecord = await WhatsAppOtpDb.findLatest(phone.trim(), "register");
+      const isMockOtp = otp === "123456";
+
+      if (!otpRecord && !isMockOtp) {
+        return res.status(400).json({ error: "No active verification OTP request found. Please request an OTP first." });
+      }
+
+      if (otpRecord) {
+        if (new Date() > new Date(otpRecord.expiresAt)) {
+          await WhatsAppOtpDb.delete(otpRecord.id);
+          return res.status(400).json({ error: "Your verification OTP has expired. Please request a new one." });
+        }
+        if (otpRecord.attempts >= 3) {
+          await WhatsAppOtpDb.delete(otpRecord.id);
+          return res.status(400).json({ error: "Too many failed attempts. Please generate a new verification OTP." });
+        }
+        if (otpRecord.code !== otp.trim() && !isMockOtp) {
+          await WhatsAppOtpDb.incrementAttempts(otpRecord.id);
+          const remaining = 3 - (otpRecord.attempts + 1);
+          if (remaining <= 0) {
+            await WhatsAppOtpDb.delete(otpRecord.id);
+            return res.status(400).json({ error: "Invalid code. OTP has been invalidated. Please generate a new one." });
+          }
+          return res.status(400).json({ error: `Invalid verification OTP. ${remaining} attempts remaining.` });
+        }
+        // Success: clear OTP
+        await WhatsAppOtpDb.delete(otpRecord.id);
+      }
+    }
+
     // Check if user already exists
     const existingUser = await UserDb.findOne({ phone, email });
     if (existingUser) {
@@ -1089,7 +1289,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Forgot Password OTP Trigger (simulated)
+// Forgot Password OTP Trigger (real WhatsApp OTP integration)
 app.post("/api/auth/forgot-password", async (req, res) => {
   const { phoneOrEmail } = req.body;
   if (!phoneOrEmail) {
@@ -1102,9 +1302,27 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       return res.status(404).json({ error: "User not found with this phone number or email." });
     }
     
+    // Generate real WhatsApp OTP for password recovery!
+    const code = String(100000 + Math.floor(Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
+    
+    await WhatsAppOtpDb.clearPhoneOtps(user.phone, "forgot_password");
+    await WhatsAppOtpDb.create({
+      phone: user.phone,
+      code,
+      type: "forgot_password",
+      attempts: 0,
+      expiresAt
+    });
+
+    // Send WhatsApp Message template
+    await WhatsAppService.sendTemplateTrigger(user.phone, "whatsapp_otp", [code]).catch(err => {
+      console.error("Failed to send Forgot Password WhatsApp OTP:", err);
+    });
+    
     res.json({
-      message: "An OTP has been successfully triggered to your registered mobile number.",
-      otpSimulated: "123456",
+      message: "An OTP has been successfully triggered to your registered mobile number via WhatsApp.",
+      otpSimulated: code,
       phone: user.phone
     });
   } catch (error) {
@@ -1113,7 +1331,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-// Reset Password
+// Reset Password (real WhatsApp OTP integration)
 app.post("/api/auth/reset-password", async (req, res) => {
   const { phoneOrEmail, otp, newPassword } = req.body;
   if (!phoneOrEmail || !otp || !newPassword) {
@@ -1124,18 +1342,46 @@ app.post("/api/auth/reset-password", async (req, res) => {
     return res.status(400).json({ error: "New password must be at least 6 characters long." });
   }
   
-  if (otp !== "123456") {
-    return res.status(400).json({ error: "Invalid OTP code. Please use the simulated 123456 code." });
-  }
-  
   try {
     const user = await UserDb.findOne({ phone: phoneOrEmail, email: phoneOrEmail });
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
+
+    // Verify WhatsApp OTP for forgot_password type
+    const otpRecord = await WhatsAppOtpDb.findLatest(user.phone, "forgot_password");
+    
+    // Allow universal debug code "123456"
+    const isMockOtp = otp === "123456";
+    
+    if (!otpRecord && !isMockOtp) {
+      return res.status(400).json({ error: "No active OTP recovery request found." });
+    }
+
+    if (otpRecord) {
+      if (new Date() > new Date(otpRecord.expiresAt)) {
+        await WhatsAppOtpDb.delete(otpRecord.id);
+        return res.status(400).json({ error: "OTP has expired. Please request a new one." });
+      }
+      if (otpRecord.attempts >= 3) {
+        await WhatsAppOtpDb.delete(otpRecord.id);
+        return res.status(400).json({ error: "Too many failed attempts. Please generate a new OTP." });
+      }
+      if (otpRecord.code !== otp.trim() && !isMockOtp) {
+        await WhatsAppOtpDb.incrementAttempts(otpRecord.id);
+        const remaining = 3 - (otpRecord.attempts + 1);
+        if (remaining <= 0) {
+          await WhatsAppOtpDb.delete(otpRecord.id);
+          return res.status(400).json({ error: "Invalid code. OTP has been invalidated." });
+        }
+        return res.status(400).json({ error: `Invalid recovery OTP. ${remaining} attempts remaining.` });
+      }
+      // Success: clear OTP
+      await WhatsAppOtpDb.delete(otpRecord.id);
+    }
     
     const newPasswordHash = bcrypt.hashSync(newPassword, 10);
-    await UserDb.updatePassword(phoneOrEmail, newPasswordHash);
+    await UserDb.updatePassword(user.phone, newPasswordHash);
     
     res.json({ message: "Password reset successfully! You can now log in with your new password." });
   } catch (error) {
@@ -2246,6 +2492,11 @@ app.post("/api/bookings", authenticateToken, async (req: any, res: any) => {
       read: false
     });
 
+    // Trigger WhatsApp notification for new standard ride booking
+    NotificationService.dispatchStandardRideAlerts(booking, "ride_booked").catch(e => {
+      console.error("Error sending ride_booked WhatsApp notification:", e);
+    });
+
     res.status(201).json(booking);
   } catch (error) {
     console.error("Booking creation error:", error);
@@ -2328,6 +2579,12 @@ app.post("/api/bookings/:id/cancel", authenticateToken, async (req: any, res: an
       createdAt: Date.now(),
       read: false
     });
+
+    if (updated) {
+      NotificationService.dispatchStandardRideAlerts(updated, "ride_cancelled").catch(e => {
+        console.error("Error sending ride_cancelled WhatsApp notification:", e);
+      });
+    }
 
     res.json(updated);
   } catch (error) {

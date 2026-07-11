@@ -11,6 +11,7 @@ export default function ForgotPassword() {
   const [step, setStep] = useState<1 | 2 | 3>(1); // 1: request, 2: verify/reset, 3: success
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [simulatedOtp, setSimulatedOtp] = useState<string | null>(null);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -29,6 +30,9 @@ export default function ForgotPassword() {
     try {
       const data = await forgotPassword(phoneOrEmail.trim());
       setSuccessMsg(data.message);
+      if (data.otpSimulated) {
+        setSimulatedOtp(data.otpSimulated);
+      }
       setStep(2);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to initiate recovery. Please ensure the user exists.");
@@ -138,15 +142,22 @@ export default function ForgotPassword() {
               </div>
             )}
 
+            {/* Simulated OTP Notification Banner */}
+            {simulatedOtp && (
+              <div className="p-3.5 bg-orange-50 border border-orange-100 rounded-xl flex items-center gap-3">
+                <Key className="w-5 h-5 text-orange-500 shrink-0" />
+                <div className="text-xs text-orange-800">
+                  <span className="font-bold">WhatsApp simulation active:</span> Your password reset recovery OTP is <code className="bg-white px-2 py-0.5 rounded font-mono font-bold text-sm tracking-wider border border-orange-200">{simulatedOtp}</code>. You can also use universal debug code <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold border border-orange-200">123456</code>.
+                </div>
+              </div>
+            )}
+
             {/* OTP Field */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <label htmlFor="recovery-otp" className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                   Verification OTP Code
                 </label>
-                <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                  Test OTP: 123456
-                </span>
               </div>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
@@ -158,8 +169,8 @@ export default function ForgotPassword() {
                   maxLength={6}
                   placeholder="Enter 6-digit OTP"
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition-all duration-200 font-mono tracking-widest text-center text-lg"
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition-all duration-200 font-mono tracking-widest text-center text-lg font-bold"
                 />
               </div>
             </div>
@@ -196,7 +207,7 @@ export default function ForgotPassword() {
                   <span>Resetting Password...</span>
                 </>
               ) : (
-                <span>Reset Password & Log In</span>
+                <span>Reset Password & Sign In</span>
               )}
             </button>
           </form>

@@ -18,12 +18,14 @@ interface AuthContextType {
     vehicleType?: string;
     vehicleNumber?: string;
     referralCode?: string;
+    otp?: string;
   }) => Promise<User>;
   logout: () => void;
   clearError: () => void;
   forgotPassword: (phoneOrEmail: string) => Promise<{ message: string; otpSimulated?: string }>;
   resetPassword: (phoneOrEmail: string, otp: string, newPassword: string) => Promise<{ message: string }>;
   refreshUser: () => Promise<void>;
+  saveAuthSession: (token: string, user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -201,6 +203,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const saveAuthSession = (token: string, user: User) => {
+    localStorage.setItem("gramgo_token", token);
+    setToken(token);
+    setUser(user);
+  };
+
   const isAuthenticated = !!user;
 
   return (
@@ -217,7 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearError,
         forgotPassword,
         resetPassword,
-        refreshUser
+        refreshUser,
+        saveAuthSession
       }}
     >
       {children}

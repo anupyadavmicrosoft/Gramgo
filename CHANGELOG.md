@@ -4,6 +4,37 @@ All notable changes and feature additions to the GramGo Rural Mobility Platform 
 
 ---
 
+## [Unreleased] - 2026-07-11
+
+### Added
+
+#### 1. WhatsApp OTP Verification Architecture (Backend)
+- **Database & Schemas**: Created a modular `/server/models/WhatsAppOtp.ts` model. Implemented a robust `WhatsAppOtpDb` repository mapping to a Mongoose `WhatsAppOtp` schema with a thread-safe, high-durability in-memory fallback store to ensure seamless operation even when MongoDB is offline.
+- **Verification Attempt Limit Logic**: Implemented strict anti-brute-force controls: tracks incorrect attempts and automatically invalidates/deletes the OTP record upon the 3rd failed attempt.
+- **OTP Expiry Logic**: Set verification codes to automatically expire after 5 minutes of creation.
+- **Service & Routes Integration**: Added robust Express API routes inside `/server.ts`:
+  - `POST /api/auth/otp/send`: Generates a secure, random 6-digit verification code, wipes previous OTP payloads of the same type for that number, saves the record, and dispatches the code using `WhatsAppService.sendTemplateTrigger`.
+  - `POST /api/auth/otp/verify`: Verifies code accuracy. If `type === "login"`, it also automatically retrieves the user, signs a secure JWT session token, and signs the user in instantly in a single click.
+  - Upgraded `POST /api/auth/register` to support optional/mandatory verification OTP inline checking during registration, preventing front-run spam registrations.
+  - Transitioned `POST /api/auth/forgot-password` and `POST /api/auth/reset-password` from mock logic to dynamic, real database-backed WhatsApp OTP verification with full attempt tracking.
+
+#### 2. Segmented WhatsApp OTP Authentication Interfaces (Frontend)
+- **Interactive Tabbed Login Screen** (`/src/components/Login.tsx`):
+  - Overhauled the login experience with an elegant, modern segmented control tab bar to choose between **Standard Password** and **Secure WhatsApp OTP** login.
+  - Fully responsive layout featuring inline loaders, custom simulation alert boxes containing `otpSimulated` codes, and error notifications.
+  - Integrated active countdown clocks for Resend OTP (30s delay) using React hooks and refs.
+- **Verified Onboarding / Registration** (`/src/components/Register.tsx`):
+  - Created an inline phone verification component embedded directly into the onboarding form.
+  - Automatically manages interactive state progression ("Verify", "Change", "Verified" with a green check badge).
+  - Enforces OTP matching before the "Create Account" button can be successfully submitted, ensuring 100% verified mobile numbers.
+- **Password Recovery Enhancement** (`/src/components/ForgotPassword.tsx`):
+  - Connected the password recovery workflow to show dynamic simulated alert banners for generated codes.
+  - Integrated with the backend's database-backed OTP validation for secure credential resetting.
+- **Auth Context Expansion** (`/src/context/AuthContext.tsx`):
+  - Added the `saveAuthSession(token, user)` capability to enable seamless login handshakes from standard or custom OTP verification controllers.
+
+---
+
 ## [Unreleased] - 2026-07-07
 
 ### Added

@@ -13,7 +13,13 @@ export class WhatsAppService {
    * Initialize the background worker queue processor for WhatsApp dispatches
    */
   public static startQueueWorker() {
-    console.log("[WhatsApp Service] Initializing queue worker...");
+    console.log("[WhatsApp Service] Initializing queue worker and seeding templates...");
+    
+    // Seed default templates asynchronously on startup
+    MessageTemplateDb.seedTemplates()
+      .then(() => console.log("[WhatsApp Service] Default templates ensured successfully."))
+      .catch(err => console.error("[WhatsApp Service] Error seeding default templates:", err));
+
     setInterval(async () => {
       await this.processMessageQueue();
     }, 5000); // Check every 5 seconds

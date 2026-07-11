@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { User, Phone, Lock, Home, Shield, Loader, Car, Compass, Gift, Check, AlertCircle } from "lucide-react";
+import { User, Phone, Lock, Home, Shield, Loader, Car, Compass, Gift, Check, AlertCircle, Key } from "lucide-react";
 
 const VILLAGES = [
   "Sherpur",
@@ -35,10 +35,47 @@ export default function Register() {
   const [customVillage, setCustomVillage] = useState("");
   const [isCustomVillage, setIsCustomVillage] = useState(false);
 
+  // WhatsApp OTP Verification state
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [simulatedOtp, setSimulatedOtp] = useState<string | null>(null);
+  const [resendCountdown, setResendCountdown] = useState(0);
+
   // Referral Details
   const [referralCode, setReferralCode] = useState("");
   const [isValidatingReferral, setIsValidatingReferral] = useState(false);
   const [referralValidationResult, setReferralValidationResult] = useState<{ valid: boolean; message: string; referrerName?: string } | null>(null);
+
+  // Countdown timer reference
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear timers on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, []);
+
+  // Countdown clock updater
+  useEffect(() => {
+    if (resendCountdown > 0) {
+      countdownTimerRef.current = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, [resendCountdown]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -85,6 +122,84 @@ export default function Register() {
     }
   };
 
+  // Send Registration WhatsApp OTP
+  const handleSendRegistrationOtp = async () => {
+    setFormError(null);
+    clearError();
+
+    const cleanPhone = phone.trim();
+    if (!cleanPhone) {
+      setFormError("Please enter your mobile phone number first.");
+      return;
+    }
+
+    if (cleanPhone.length < 10) {
+      setFormError("Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      const res = await fetch("/api/auth/otp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: cleanPhone, type: "register" })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to trigger OTP. Please verify your phone number.");
+      }
+
+      setOtpSent(true);
+      setResendCountdown(30);
+      if (data.otpSimulated) {
+        setSimulatedOtp(data.otpSimulated);
+      }
+    } catch (err: any) {
+      setFormError(err.message);
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Verify Registration WhatsApp OTP
+  const handleVerifyRegistrationOtp = async () => {
+    setFormError(null);
+    clearError();
+
+    const cleanOtp = otpCode.trim();
+    if (!cleanOtp) {
+      setFormError("Please enter the 6-digit verification OTP code.");
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: phone.trim(),
+          type: "register",
+          code: cleanOtp
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Verification failed. Please check your code and try again.");
+      }
+
+      setOtpVerified(true);
+      setSimulatedOtp(null);
+    } catch (err: any) {
+      setFormError(err.message);
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
   // Driver Specific Details
   const [vehicleType, setVehicleType] = useState(VEHICLE_TYPES[0]);
   const [vehicleNumber, setVehicleNumber] = useState("");
@@ -101,6 +216,12 @@ export default function Register() {
     if (!name.trim()) return setFormError("Full Name is required.");
     if (!phone.trim()) return setFormError("Mobile Phone is required.");
     if (phone.trim().length < 10) return setFormError("Please enter a valid 10-digit mobile number.");
+    
+    // OTP requirement validation
+    if (!otpVerified) {
+      return setFormError("Please verify your mobile number using the WhatsApp OTP verification code before registering.");
+    }
+
     if (!password) return setFormError("Password is required.");
     if (password.length < 6) return setFormError("Password must be at least 6 characters long.");
 
@@ -125,7 +246,8 @@ export default function Register() {
         village: finalVillage,
         vehicleType: role === "driver" ? vehicleType : undefined,
         vehicleNumber: role === "driver" ? vehicleNumber.trim() : undefined,
-        referralCode: referralCode.trim() || undefined
+        referralCode: referralCode.trim() || undefined,
+        otp: otpCode.trim()
       });
 
       // Redirect based on role
@@ -239,25 +361,107 @@ export default function Register() {
               </div>
             </div>
 
-            {/* Mobile Phone */}
+            {/* Mobile Phone & WhatsApp Verification integrated */}
             <div className="space-y-2">
               <label htmlFor="reg-phone" className="block text-xs font-bold uppercase tracking-wider text-slate-500">
                 Mobile Number (मोबाइल नंबर)
               </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
-                  <Phone className="w-4 h-4" />
-                </span>
-                <input
-                  id="reg-phone"
-                  type="tel"
-                  placeholder="e.g. 9876543210"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition duration-200"
-                />
+              <div className="flex gap-2">
+                <div className="relative flex-grow">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+                    <Phone className="w-4 h-4" />
+                  </span>
+                  <input
+                    id="reg-phone"
+                    type="tel"
+                    disabled={otpVerified || otpSent}
+                    placeholder="e.g. 9876543210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition duration-200 disabled:opacity-75 disabled:bg-slate-100"
+                  />
+                </div>
+                {!otpSent && !otpVerified && (
+                  <button
+                    type="button"
+                    onClick={handleSendRegistrationOtp}
+                    disabled={isSendingOtp || phone.trim().length < 10}
+                    className="px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-xl transition duration-200 cursor-pointer shrink-0"
+                  >
+                    {isSendingOtp ? "Sending..." : "Verify"}
+                  </button>
+                )}
+                {otpSent && !otpVerified && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtpSent(false);
+                      setOtpCode("");
+                      setSimulatedOtp(null);
+                    }}
+                    className="px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition duration-200 cursor-pointer shrink-0"
+                  >
+                    Change
+                  </button>
+                )}
+                {otpVerified && (
+                  <span className="px-3 bg-emerald-50 border border-emerald-200 text-emerald-600 font-bold text-xs rounded-xl flex items-center gap-1 shrink-0">
+                    <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                    Verified
+                  </span>
+                )}
               </div>
             </div>
+
+            {/* OTP Entry box */}
+            {otpSent && !otpVerified && (
+              <div className="md:col-span-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Key className="w-4 h-4 text-orange-500" />
+                    Verify WhatsApp Verification OTP
+                  </h4>
+                  {resendCountdown > 0 ? (
+                    <span className="text-xs text-slate-400">
+                      Resend in <strong className="text-slate-600">{resendCountdown}s</strong>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendRegistrationOtp}
+                      className="text-xs font-bold text-orange-600 hover:text-orange-500 hover:underline cursor-pointer"
+                    >
+                      Resend OTP via WhatsApp
+                    </button>
+                  )}
+                </div>
+
+                {simulatedOtp && (
+                  <div className="p-3 bg-orange-50 border border-orange-100 rounded-xl flex items-center gap-2 text-xs text-orange-800">
+                    <span className="font-bold">WhatsApp simulation:</span> Enter code <code className="bg-white px-2 py-0.5 rounded font-mono font-bold text-sm border border-orange-200">{simulatedOtp}</code> or universal debug code <code className="bg-white px-1 py-0.5 rounded font-mono font-bold border border-orange-200">123456</code>.
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="Enter 6-digit code"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-center tracking-[0.5em] text-lg font-bold text-slate-800 focus:outline-none focus:border-orange-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleVerifyRegistrationOtp}
+                    disabled={isVerifyingOtp || otpCode.trim().length !== 6}
+                    className="px-6 bg-slate-850 hover:bg-slate-900 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-sm rounded-xl transition duration-200 cursor-pointer shrink-0 flex items-center gap-1"
+                  >
+                    {isVerifyingOtp ? "Verifying..." : "Verify OTP"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Password */}
             <div className="space-y-2">
@@ -308,43 +512,33 @@ export default function Register() {
                   />
                 </div>
               ) : (
-                <select
-                  value={village}
-                  onChange={(e) => setVillage(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition duration-200 font-sans cursor-pointer"
-                >
-                  {VILLAGES.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+                    <Home className="w-4 h-4" />
+                  </span>
+                  <select
+                    value={village}
+                    onChange={(e) => setVillage(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3.5 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition duration-200 cursor-pointer"
+                  >
+                    {VILLAGES.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Email (Optional) */}
-          <div className="space-y-2">
-            <label htmlFor="reg-email" className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-              Email Address (Optional)
-            </label>
-            <input
-              id="reg-email"
-              type="email"
-              placeholder="e.g. user@gramgo.org"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:outline-none focus:border-orange-500 focus:bg-white transition duration-200"
-            />
-          </div>
-
-          {/* Driver Specific section */}
+          {/* Driver details (Conditional) */}
           {role === "driver" && (
-            <div id="driver-details-section" className="p-6 bg-slate-50 rounded-xl border border-slate-200 space-y-4 animate-fade-in">
-              <h3 className="text-sm font-bold uppercase text-slate-700 border-b border-slate-200 pb-2">
-                Emergency Transportation details
+            <div className="space-y-4 border-t border-slate-100 pt-6 animate-slide-up">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-orange-600 flex items-center gap-2">
+                <Car className="w-4 h-4" /> Driver & Vehicle Information
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Vehicle Type */}
                 <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
