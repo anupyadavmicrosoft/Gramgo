@@ -42,6 +42,8 @@ import EmergencyDashboard from "./EmergencyDashboard";
 import ChatModule from "./ChatModule";
 import CouponManagement from "./CouponManagement";
 import RatingSystem from "./RatingSystem";
+import WhatsAppSettings from "./WhatsAppSettings";
+
 import {
   ResponsiveContainer,
   AreaChart,
@@ -135,7 +137,7 @@ interface Permission {
 
 export default function AdminHub() {
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission" | "coupons" | "ratings" | "chat">("emergency-dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission" | "coupons" | "ratings" | "chat" | "whatsapp">("emergency-dashboard");
 
   // State Management
   const [metrics, setMetrics] = useState<any>(null);
@@ -1668,6 +1670,7 @@ export default function AdminHub() {
             { id: "coupons", label: "Subsidy Vouchers", icon: Ticket },
             { id: "ratings", label: "Ratings & Governance", icon: Star },
             { id: "chat", label: "Admin Support Chat", icon: MessageSquare },
+            { id: "whatsapp", label: "WhatsApp Gateway", icon: MessageSquare, badge: "Official" },
             { id: "notifications", label: "Emergency Alerts Log", icon: Bell }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -4079,6 +4082,14 @@ export default function AdminHub() {
               <ChatModule />
             </div>
           )}
+
+          {/* WhatsApp Gateway Settings Tab */}
+          {activeTab === "whatsapp" && (
+            <div className="lg:col-span-9">
+              <WhatsAppSettings token={token} onShowToast={showToast} />
+            </div>
+          )}
+
 
         </div>
 

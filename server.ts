@@ -32,6 +32,8 @@ import chatRoutes from "./server/routes/chatRoutes";
 import { MessageDb } from "./server/models/Message";
 import { CallDb } from "./server/models/Call";
 import { UserNotificationDb } from "./server/models/UserNotification";
+import whatsAppRoutes from "./server/routes/whatsAppRoutes";
+import { WhatsAppService } from "./server/services/whatsAppService";
 
 dotenv.config();
 
@@ -1342,6 +1344,8 @@ app.post("/api/notifications/simulate", authenticateToken, async (req: any, res:
 });
 
 // ---------------- API ROUTES ----------------
+app.use("/api/whatsapp", whatsAppRoutes);
+
 
 // Get emergency contacts and national helplines
 app.get("/api/emergency-contacts", (req, res) => {
@@ -4907,6 +4911,13 @@ async function startServer() {
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
     
+    // Start WhatsApp Queue Worker background processor
+    try {
+      WhatsAppService.startQueueWorker();
+    } catch (err) {
+      console.error("Failed to start WhatsApp queue worker:", err);
+    }
+    
     // Start Emergency Priority Engine background loop (ticks every 4 seconds)
     setInterval(() => {
       PriorityEngine.tick().catch(err => {
@@ -4914,6 +4925,7 @@ async function startServer() {
       });
     }, 4000);
   });
+
 }
 
 startServer();
