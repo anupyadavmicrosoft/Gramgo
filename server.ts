@@ -23,6 +23,10 @@ import { WalletService } from "./server/services/walletService";
 import { ReferralService } from "./server/services/referralService";
 import { WithdrawalRequestDb } from "./server/models/WithdrawalRequest";
 import { WalletDb } from "./server/models/Wallet";
+import couponRoutes from "./server/routes/couponRoutes";
+import { seedCouponData } from "./server/models/Coupon";
+import reviewRoutes from "./server/routes/reviewRoutes";
+import { ReviewDb } from "./server/models/Review";
 
 dotenv.config();
 
@@ -421,6 +425,8 @@ async function initEmergencyRides() {
 // Call initEmergencyRides
 setTimeout(() => {
   initEmergencyRides();
+  seedCouponData().catch(err => console.error("Coupon seeding failed:", err));
+  ReviewDb.seedOnMongo().catch(err => console.error("Review seeding failed:", err));
 }, 2500);
 
 // Helper to sync driver changes from DB updates
@@ -2004,24 +2010,6 @@ app.get("/api/rides/active", authenticateToken, (req: any, res: any) => {
   res.json(active || null);
 });
 
-// Get details of a single ride by ID (for Ride Summary display)
-app.get("/api/rides/:rideId", authenticateToken, async (req: any, res: any) => {
-  const { rideId } = req.params;
-  try {
-    const ride = emergencyRides.find(r => r.id === rideId);
-    if (!ride) {
-      return res.status(404).json({ error: "Ride not found." });
-    }
-    // Verify user is authorized to view this ride's details
-    if (ride.passengerId !== req.user.id && ride.driverId !== req.user.id && req.user.role !== "admin") {
-      return res.status(403).json({ error: "Unauthorized access to ride details." });
-    }
-    res.json(ride);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch ride details." });
-  }
-});
-
 // Get cancellation reasons
 app.get("/api/rides/cancellation-reasons", authenticateToken, (req: any, res: any) => {
   const reasons = {
@@ -2068,6 +2056,24 @@ app.get("/api/rides/cancellations/history", authenticateToken, async (req: any, 
   } catch (err: any) {
     console.error("Fetch cancellation history error:", err);
     res.status(500).json({ error: "Failed to fetch cancellation history." });
+  }
+});
+
+// Get details of a single ride by ID (for Ride Summary display)
+app.get("/api/rides/:rideId", authenticateToken, async (req: any, res: any) => {
+  const { rideId } = req.params;
+  try {
+    const ride = emergencyRides.find(r => r.id === rideId);
+    if (!ride) {
+      return res.status(404).json({ error: "Ride not found." });
+    }
+    // Verify user is authorized to view this ride's details
+    if (ride.passengerId !== req.user.id && ride.driverId !== req.user.id && req.user.role !== "admin") {
+      return res.status(403).json({ error: "Unauthorized access to ride details." });
+    }
+    res.json(ride);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch ride details." });
   }
 });
 
@@ -2932,6 +2938,12 @@ app.use("/api/payments", authenticateToken, paymentRoutes);
 // --- REFERRAL FOUNDATION APIS ---
 import referralRoutes from "./server/routes/referralRoutes";
 app.use("/api/referrals", referralRoutes);
+
+// --- COUPON SYSTEM APIS ---
+app.use("/api/coupons", couponRoutes);
+
+// --- RATING SYSTEM APIS ---
+app.use("/api/reviews", reviewRoutes);
 
 
 

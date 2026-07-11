@@ -29,13 +29,17 @@ import {
   Activity,
   IndianRupee,
   XCircle,
-  HeartPulse
+  HeartPulse,
+  Ticket,
+  Star
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import UserManagement from "./UserManagement";
 import DriverManagement from "./DriverManagement";
 import { EmergencyNotificationsLog } from "./EmergencyNotificationsLog";
 import EmergencyDashboard from "./EmergencyDashboard";
+import CouponManagement from "./CouponManagement";
+import RatingSystem from "./RatingSystem";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -129,7 +133,7 @@ interface Permission {
 
 export default function AdminHub() {
   const { user, token } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission">("emergency-dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "users" | "drivers" | "bookings" | "reports" | "settings" | "roles" | "admins" | "priority-engine" | "notifications" | "emergency-dashboard" | "refund-approvals" | "commission" | "coupons" | "ratings">("emergency-dashboard");
 
   // State Management
   const [metrics, setMetrics] = useState<any>(null);
@@ -1638,6 +1642,8 @@ export default function AdminHub() {
             { id: "priority-engine", label: "Priority Dispatch Engine", icon: ShieldAlert, badge: priorityStatus?.activeStates?.filter((s: any) => s.status === "searching").length || "" },
             { id: "refund-approvals", label: "Wallet & Refund Claims", icon: IndianRupee },
             { id: "commission", label: "Platform Commission", icon: TrendingUp },
+            { id: "coupons", label: "Subsidy Vouchers", icon: Ticket },
+            { id: "ratings", label: "Ratings & Governance", icon: Star },
             { id: "notifications", label: "Emergency Alerts Log", icon: Bell }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -4026,6 +4032,20 @@ export default function AdminHub() {
                 </>
               )}
 
+            </div>
+          )}
+
+          {/* Coupon and Subsidy Voucher Management Tab */}
+          {activeTab === "coupons" && (
+            <div className="lg:col-span-9">
+              <CouponManagement token={token} />
+            </div>
+          )}
+
+          {/* Ratings and Feedback Governance Tab */}
+          {activeTab === "ratings" && (
+            <div className="lg:col-span-9">
+              <RatingSystem role="admin" token={token} user={user} />
             </div>
           )}
 

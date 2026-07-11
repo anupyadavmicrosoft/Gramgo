@@ -40,6 +40,7 @@ export interface IReferralReward {
   amount: number;
   status: "pending" | "claimed" | "expired";
   description: string;
+  expiryDate?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,6 +52,7 @@ const ReferralRewardSchema = new Schema<IReferralReward>({
   amount: { type: Number, required: true },
   status: { type: String, enum: ["pending", "claimed", "expired"], default: "pending" },
   description: { type: String, required: true },
+  expiryDate: { type: Date },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -292,6 +294,7 @@ export const ReferralRewardDb = {
       amount: data.amount ?? 50,
       status: data.status || "pending",
       description: data.description || "Referral reward",
+      expiryDate: data.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default 30 days
       createdAt: data.createdAt || new Date(),
       updatedAt: data.updatedAt || new Date()
     };
@@ -318,6 +321,25 @@ export const ReferralRewardDb = {
     const found = memoryReferralRewards.find(r => r.id === id);
     if (found) {
       found.status = "claimed";
+      found.updatedAt = new Date();
+      return { ...found };
+    }
+    return null;
+  },
+
+  async expireReward(id: string): Promise<IReferralReward | null> {
+    if (isMongoActive() && MongoReferralRewardModel) {
+      const doc = await MongoReferralRewardModel.findOneAndUpdate(
+        { id },
+        { $set: { status: "expired", updatedAt: new Date() } },
+        { new: true }
+      );
+      return doc ? doc.toObject() : null;
+    }
+
+    const found = memoryReferralRewards.find(r => r.id === id);
+    if (found) {
+      found.status = "expired";
       found.updatedAt = new Date();
       return { ...found };
     }

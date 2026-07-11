@@ -38,7 +38,23 @@ export class ReferralController {
       const transactions = await ReferralTransactionDb.findByReferrerId(user.id);
 
       // 3. Fetch all referral rewards
-      const rewards = await ReferralRewardDb.findByUserId(user.id);
+      const rawRewards = await ReferralRewardDb.findByUserId(user.id);
+
+      // Check for and handle expired rewards
+      const now = new Date();
+      const rewards: any[] = [];
+      for (const reward of rawRewards) {
+        if (
+          reward.status === "pending" &&
+          reward.expiryDate &&
+          new Date(reward.expiryDate).getTime() < now.getTime()
+        ) {
+          await ReferralRewardDb.expireReward(reward.id);
+          rewards.push({ ...reward, status: "expired" as const });
+        } else {
+          rewards.push(reward);
+        }
+      }
 
       // 4. Compute statistics
       const stats = {
@@ -196,6 +212,16 @@ export class ReferralController {
 
       if (!reward) {
         return res.status(404).json({ error: "Referral reward not found." });
+      }
+
+      // Check if reward has expired
+      if (
+        reward.status === "pending" &&
+        reward.expiryDate &&
+        new Date(reward.expiryDate).getTime() < Date.now()
+      ) {
+        await ReferralRewardDb.expireReward(rewardId);
+        return res.status(400).json({ error: "This referral reward has expired and can no longer be claimed." });
       }
 
       if (reward.status !== "pending") {

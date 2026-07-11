@@ -16,6 +16,8 @@ export interface IBooking {
   driverId?: string;
   driverName?: string;
   driverPhone?: string;
+  couponCode?: string;
+  discountApplied?: number;
   createdAt: Date;
 }
 
@@ -35,6 +37,8 @@ const BookingSchema = new Schema<IBooking>({
   driverId: { type: String },
   driverName: { type: String },
   driverPhone: { type: String },
+  couponCode: { type: String },
+  discountApplied: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now }
 });
 

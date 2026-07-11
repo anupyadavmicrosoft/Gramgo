@@ -33,7 +33,8 @@ import {
   MessageSquare,
   Mail,
   Coins,
-  Gift
+  Gift,
+  Star
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { EmergencyRide, CommunityHealthCentre, RideCancellationLog } from "../types";
@@ -42,6 +43,7 @@ import RideBooking from "./RideBooking";
 import NearbyDrivers from "./NearbyDrivers";
 import WalletDashboard from "./WalletDashboard";
 import ReferralDashboard from "./ReferralDashboard";
+import RatingSystem from "./RatingSystem";
 
 interface Notification {
   id: string;
@@ -65,7 +67,7 @@ export default function PassengerHub() {
   const { user, token, refreshUser } = useAuth();
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<"dashboard" | "book" | "book_ride" | "nearby_drivers" | "history" | "profile" | "notifications" | "settings" | "cancellations" | "wallet" | "referral">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "book" | "book_ride" | "nearby_drivers" | "history" | "profile" | "notifications" | "settings" | "cancellations" | "wallet" | "referral" | "ratings">("dashboard");
   
   // Data States
   const [activeRide, setActiveRide] = useState<EmergencyRide | null>(null);
@@ -795,6 +797,18 @@ export default function PassengerHub() {
                   {rideHistory.length}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab("ratings")}
+              className={`flex items-center space-x-3 px-4 py-3.5 rounded-xl text-sm font-bold transition-all text-left cursor-pointer ${
+                activeTab === "ratings"
+                  ? "bg-orange-600 text-white shadow-md shadow-orange-100"
+                  : "bg-white text-slate-600 hover:bg-orange-50/50 hover:text-orange-600 border border-slate-100"
+              }`}
+            >
+              <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+              <span>Ratings & Reviews</span>
             </button>
 
             <button
@@ -1900,6 +1914,11 @@ export default function PassengerHub() {
                 </div>
                 <ReferralDashboard token={token} onRewardClaimed={refreshUser} />
               </div>
+            )}
+
+            {/* RATINGS & REVIEWS TAB */}
+            {activeTab === "ratings" && (
+              <RatingSystem role="passenger" token={token} user={user} />
             )}
 
             {/* 6. SETTINGS TAB */}

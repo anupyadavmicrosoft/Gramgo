@@ -17,7 +17,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Info
+  Info,
+  Ticket,
+  X
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { IBooking } from "../types";
@@ -48,6 +50,13 @@ export default function RideBooking() {
   // Form submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+
+  // Coupon Voucher States
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [discountApplied, setDiscountApplied] = useState(0);
+  const [couponError, setCouponError] = useState("");
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
 
   // Live driver coordinates for active booking
   const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number; lastUpdated?: string } | null>(null);
@@ -114,6 +123,10 @@ export default function RideBooking() {
 
   // Dynamic automatic estimation effect: query API whenever pickup/destination/rideType updates
   useEffect(() => {
+    setAppliedCoupon(null);
+    setDiscountApplied(0);
+    setCouponError("");
+
     if (!pickupLocation.trim() || !destination.trim() || !rideType) {
       setEstimate(null);
       return;
@@ -219,6 +232,67 @@ export default function RideBooking() {
     }
   };
 
+  const handleValidateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!couponCode.trim()) {
+      setCouponError("Please enter a voucher code.");
+      return;
+    }
+    if (!estimate) {
+      setCouponError("Please specify pickup and destination to calculate fare first.");
+      return;
+    }
+
+    setCouponError("");
+    setIsValidatingCoupon(true);
+    try {
+      const mappedVehicleType = rideType === "Auto" 
+        ? "Auto Rickshaw" 
+        : rideType === "Emergency" 
+        ? "Bolero SUV" 
+        : rideType === "Bike" 
+        ? "E-Rickshaw" 
+        : "Bolero SUV";
+
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          code: couponCode.toUpperCase().trim(),
+          rideAmount: estimate.estimatedFare,
+          emergencyType: notes || "Other",
+          village: user?.village,
+          vehicleType: mappedVehicleType
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setAppliedCoupon(null);
+        setDiscountApplied(0);
+        setCouponError(data.error || "Invalid coupon code.");
+      } else {
+        setAppliedCoupon(data.coupon);
+        setDiscountApplied(data.discountApplied);
+        setCouponError("");
+      }
+    } catch (err) {
+      setCouponError("Failed to communicate with voucher system.");
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setCouponCode("");
+    setAppliedCoupon(null);
+    setDiscountApplied(0);
+    setCouponError("");
+  };
+
   const handleGetCurrentLocation = () => {
     setIsGettingLocation(true);
     setLocationError("");
@@ -290,6 +364,39 @@ export default function RideBooking() {
       }
 
       setActiveBooking(data);
+
+      // Apply coupon if present
+      if (appliedCoupon) {
+        try {
+          const mappedVehicleType = rideType === "Auto" 
+            ? "Auto Rickshaw" 
+            : rideType === "Emergency" 
+            ? "Bolero SUV" 
+            : rideType === "Bike" 
+            ? "E-Rickshaw" 
+            : "Bolero SUV";
+
+          await fetch("/api/coupons/apply", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              code: appliedCoupon.code,
+              rideId: data.id || data._id,
+              rideAmount: estimate?.estimatedFare || data.estimatedFare || 0,
+              emergencyType: notes || "Other",
+              village: user?.village,
+              vehicleType: mappedVehicleType
+            })
+          });
+        } catch (couponApplyErr) {
+          console.error("Failed to automatically apply coupon:", couponApplyErr);
+        }
+      }
+
+      handleRemoveCoupon(); // Clear coupon input state
       fetchHistory();
     } catch (err: any) {
       setSubmitError(err.message || "An unexpected error occurred.");
@@ -697,12 +804,80 @@ export default function RideBooking() {
                     </div>
                   </div>
 
+                  {/* Coupon Exemption Code Input */}
+                  <div className="bg-white/90 p-4 rounded-xl border border-orange-100 shadow-sm space-y-3">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                      Subsidy Exemption / Coupon Code
+                    </span>
+                    {!appliedCoupon ? (
+                      <form onSubmit={handleValidateCoupon} className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Enter voucher (e.g. HEALTH50)"
+                          value={couponCode}
+                          onChange={(e) => setCouponCode(e.target.value)}
+                          className="flex-1 px-3 py-2 bg-slate-50 focus:bg-white rounded-lg border border-slate-200 text-xs font-bold text-slate-800 uppercase placeholder-slate-400 focus:outline-none focus:border-orange-500 transition"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isValidatingCoupon}
+                          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-extrabold rounded-lg text-xs transition cursor-pointer"
+                        >
+                          {isValidatingCoupon ? "Checking..." : "Apply"}
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-lg text-xs font-extrabold">
+                        <div className="flex items-center gap-2">
+                          <Ticket className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <div>
+                            <span className="block font-black uppercase text-emerald-950">
+                              {appliedCoupon.code} Applied!
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-semibold block">
+                              -{appliedCoupon.discountType === "fixed" ? `₹${appliedCoupon.discountValue}` : `${appliedCoupon.discountValue}%`} voucher discount
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemoveCoupon}
+                          className="p-1 text-emerald-700 hover:text-rose-600 rounded-md transition cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                    {couponError && (
+                      <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>{couponError}</span>
+                      </p>
+                    )}
+                  </div>
+
                   <div className="bg-slate-900 text-white rounded-xl p-4 flex items-center justify-between">
                     <div>
-                      <span className="text-[9px] text-slate-400 font-black block uppercase">TOTAL VALUE</span>
-                      <span className="text-lg font-black text-emerald-400 block mt-0.5">
-                        {estimate.estimatedFare === 0 ? "FREE" : `₹${estimate.estimatedFare}`}
+                      <span className="text-[9px] text-slate-400 font-black block uppercase">
+                        {discountApplied > 0 ? "ESTIMATED TOTAL FARE" : "TOTAL VALUE"}
                       </span>
+                      {discountApplied > 0 ? (
+                        <div className="flex items-baseline gap-2 mt-0.5">
+                          <span className="text-sm font-bold line-through text-slate-400">
+                            ₹{estimate.estimatedFare}
+                          </span>
+                          <span className="text-lg font-black text-emerald-400">
+                            {Math.max(0, estimate.estimatedFare - discountApplied) === 0 
+                              ? "FREE" 
+                              : `₹${Math.max(0, estimate.estimatedFare - discountApplied)}`
+                            }
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-lg font-black text-emerald-400 block mt-0.5">
+                          {estimate.estimatedFare === 0 ? "FREE" : `₹${estimate.estimatedFare}`}
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
                       {rideType === "Emergency" ? "Panchayat Funded" : "Cash on Delivery"}

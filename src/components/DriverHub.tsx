@@ -27,7 +27,8 @@ import {
   X,
   Search,
   Coins,
-  Gift
+  Gift,
+  Star
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { EmergencyRide, RideCancellationLog } from "../types";
@@ -36,6 +37,7 @@ import CurrentLocationTracker from "./CurrentLocationTracker";
 import MapComponent from "./MapComponent";
 import WalletDashboard from "./WalletDashboard";
 import ReferralDashboard from "./ReferralDashboard";
+import RatingSystem from "./RatingSystem";
 
 interface RequestCardProps {
   key?: any;
@@ -166,7 +168,7 @@ export default function DriverHub() {
   const { user, token, logout, refreshUser } = useAuth();
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<"dashboard" | "documents" | "history" | "earnings" | "profile" | "cancellations" | "wallet" | "referral">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "documents" | "history" | "earnings" | "profile" | "cancellations" | "wallet" | "referral" | "ratings">("dashboard");
   
   // Core Driver Data States
   const [stats, setStats] = useState<DriverStats | null>(null);
@@ -655,6 +657,7 @@ export default function DriverHub() {
             { id: "dashboard", label: "Driver Control Hub", icon: LayoutDashboard, badge: incomingRequests.filter(r => r.status === "pending" || r.status === "searching").length },
             { id: "documents", label: "Verification Documents", icon: FileText, badge: stats?.documents && stats.documents.length < 4 ? "Action Req" : "" },
             { id: "history", label: "Completed Lifelines", icon: History, badge: stats?.rideHistory?.length },
+            { id: "ratings", label: "Ratings & Feedback", icon: Star },
             { id: "cancellations", label: "Cancellations Log", icon: XCircle, badge: cancellationLogs.length },
             { id: "earnings", label: "Subsidy & Earnings", icon: DollarSign },
             { id: "wallet", label: "My Subsidy Wallet", icon: Coins },
@@ -1389,6 +1392,11 @@ export default function DriverHub() {
               </div>
               <ReferralDashboard token={token} onRewardClaimed={refreshUser} />
             </div>
+          )}
+
+          {/* Tab: Ratings & Feedback */}
+          {activeTab === "ratings" && (
+            <RatingSystem role="driver" token={token} user={user} />
           )}
 
           {/* Tab: Profile */}
